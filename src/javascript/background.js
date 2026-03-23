@@ -61,11 +61,10 @@ const PLATFORMS = [
     hosts: ['chatgpt.com'],
     match: {
       method: 'POST',
-      pathPattern: '/backend-api/f/conversation'
+      pathPattern: '/backend-api/lat/r'
     },
     detection: {
-      type: 'sse-stream',
-      trackStart: true
+      type: 'request-complete'
     },
     // SSE 流内事件检测（需要 content script 支持）
     streamEvents: {
@@ -78,10 +77,6 @@ const PLATFORMS = [
         },
         throttleMs: 2000
       }
-    },
-    followup: {
-      pathPattern: '/backend-api/lat/r',
-      minDelayMs: 10000
     },
     notify: {
       title: 'ChatGPT 生成完成',
@@ -124,10 +119,11 @@ const requestState = new Map();      // requestId -> { platformId, tabId, isStre
 const lastNotifyAt = new Map();      // `${platformId}:${tabId}` -> timestamp
 const lastStartAt = new Map();       // `${platformId}:${tabId}` -> timestamp
 const longRunningTimeouts = new Map(); // `${platformId}:${tabId}` -> { requestId, timeoutId, startTime }
+const latestRequestPerTab = new Map(); // `${platformId}:${tabId}` -> requestId
+const latestSnippetPerTab = new Map(); // tabId -> { prompt, snippet }
 
 // 通知状态
-let currentNotificationId = null;
-let currentNotificationTarget = null;
+const activeNotifications = new Map();
 const testNotifications = new Map();
 
 // ===========================================
@@ -543,52 +539,54 @@ async function playTestSound(soundFile, soundType, volume) {
 
 async function sendNotification(platform, options = {}) {
   try {
-    // 检查平台是否启用
-    const settings = await chrome.storage.sync.get({ [platform.enabledKey]: true });
+    // 检查平台是否启用以及全局开关
+    const settings = await chrome.storage.sync.get({ 
+      [platform.enabledKey]: true,
+      notificationEnabled: true,
+      soundEnabled: true
+    });
     if (!settings[platform.enabledKey]) return;
+    if (!settings.notificationEnabled && !settings.soundEnabled) return;
 
     const { title, message, targetUrl } = platform.notify;
 
-    // 清除旧通知
-    if (currentNotificationId) {
-      chrome.notifications.clear(currentNotificationId);
-      currentNotificationTarget = null;
-    }
+    const finalTitle = options.dynamicTitle || title;
+    const finalMessage = options.dynamicMessage || message;
+    const finalIconUrl = options.iconUrl ? options.iconUrl : 'icon128.png';
 
-    // 生成新通知 ID
-    currentNotificationId = 'ai_notification_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-
-    const normalizedTabId = typeof options.tabId === 'number' && options.tabId >= 0 ? options.tabId : undefined;
-    const normalizedUrl = options.targetUrl || targetUrl;
-
-    if (normalizedTabId !== undefined || normalizedUrl) {
-      currentNotificationTarget = {
-        tabId: normalizedTabId,
-        targetUrl: normalizedUrl
-      };
-    } else {
-      currentNotificationTarget = null;
-    }
-
-    chrome.notifications.create(currentNotificationId, {
-      type: 'basic',
-      iconUrl: 'icon128.png',
-      title: title,
-      message: message,
-      priority: 1,
-      silent: true
-    });
-
-    playNotificationSound();
-
-    // 8 秒后自动清除通知
-    setTimeout(() => {
-      if (currentNotificationId) {
-        chrome.notifications.clear(currentNotificationId);
-        currentNotificationId = null;
-        currentNotificationTarget = null;
+    if (settings.notificationEnabled) {
+      // 生成新通知 ID
+      const notificationId = 'ai_notification_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  
+      const normalizedTabId = typeof options.tabId === 'number' && options.tabId >= 0 ? options.tabId : undefined;
+      const normalizedUrl = options.targetUrl || targetUrl;
+  
+      if (normalizedTabId !== undefined || normalizedUrl) {
+        activeNotifications.set(notificationId, {
+          tabId: normalizedTabId,
+          targetUrl: normalizedUrl
+        });
       }
-    }, 8000);
+  
+      chrome.notifications.create(notificationId, {
+        type: 'basic',
+        iconUrl: finalIconUrl,
+        title: finalTitle,
+        message: finalMessage,
+        priority: 1,
+        silent: true,
+        requireInteraction: false // 允许去通知中心
+      });
+  
+      // 设置较长的有效期来清理内存
+      setTimeout(() => {
+        activeNotifications.delete(notificationId);
+      }, 24 * 60 * 60 * 1000); // 1天后清理此条记录的内存
+    }
+
+    if (settings.soundEnabled) {
+      playNotificationSound();
+    }
   } catch (e) {
     console.error('发送通知失败:', e);
   }
@@ -596,35 +594,32 @@ async function sendNotification(platform, options = {}) {
 
 // 通知事件监听
 chrome.notifications.onClosed.addListener((notificationId, byUser) => {
-  if (notificationId === currentNotificationId) {
-    currentNotificationId = null;
-    currentNotificationTarget = null;
-  }
+  activeNotifications.delete(notificationId);
 });
 
 chrome.notifications.onClicked.addListener((notificationId) => {
-  if (notificationId !== currentNotificationId) return;
-
-  const target = currentNotificationTarget;
-  currentNotificationId = null;
-  currentNotificationTarget = null;
-  chrome.notifications.clear(notificationId);
-
+  const target = activeNotifications.get(notificationId);
   if (!target) return;
+  
+  activeNotifications.delete(notificationId);
+  chrome.notifications.clear(notificationId);
 
   const { tabId, targetUrl } = target;
   if (typeof tabId === 'number') {
     chrome.tabs.get(tabId, (tab) => {
       if (chrome.runtime.lastError || !tab) {
+        // 如果标签页刚才被关了，新开一个网址
         if (targetUrl) chrome.tabs.create({ url: targetUrl });
         return;
       }
 
+      // 拉起目标窗口
       if (typeof tab.windowId === 'number') {
         chrome.windows.update(tab.windowId, { focused: true }, () => {
           if (chrome.runtime.lastError) { /* 忽略 */ }
         });
       }
+      // 激活标签页
       chrome.tabs.update(tabId, { active: true });
     });
     return;
@@ -658,9 +653,9 @@ const webRequestFilter = {
   types: ['xmlhttprequest']
 };
 
-// 监听器 1: onBeforeRequest - 捕获 SSE 流请求的开始
+// 监听器 1: onBeforeRequest - 捕获匹配的请求开始时间（用于过滤瞬间完成的误报）
 chrome.webRequest.onBeforeRequest.addListener((details) => {
-  const platform = findPlatformForRequest(details, 'sse-stream');
+  const platform = findPlatformForRequest(details); // 捕获所有，不过滤 detectionType
   if (!platform) return;
 
   requestState.set(details.requestId, {
@@ -670,8 +665,10 @@ chrome.webRequest.onBeforeRequest.addListener((details) => {
     startTime: Date.now()
   });
 
+  const key = stateKey(platform.id, details.tabId);
+  latestRequestPerTab.set(key, details.requestId);
+
   if (platform.detection.trackStart) {
-    const key = stateKey(platform.id, details.tabId);
     lastStartAt.set(key, Date.now());
 
     // 1 小时后自动清理开始时间记录
@@ -697,29 +694,74 @@ chrome.webRequest.onHeadersReceived.addListener((details) => {
     req.isStream = true;
     setupLongRunningTimeout(details.requestId, req.tabId, req.platformId);
   } else {
-    // 不是 SSE 流，清理请求状态
-    requestState.delete(details.requestId);
-    // 同时清理 lastStartAt（避免 followup 误报）
+    // 判断平台配置
     const platform = PLATFORMS.find(p => p.id === req.platformId);
-    if (platform?.detection.trackStart) {
-      lastStartAt.delete(stateKey(req.platformId, req.tabId));
+    if (!platform) {
+      requestState.delete(details.requestId);
+      return;
+    }
+    
+    // 只有强依赖 sse-stream 的平台才在这里提前删除非流请求记录，
+    // request-complete 等类型的请求需要保留状态以供计算耗时使用
+    if (platform.detection.type === 'sse-stream') {
+      requestState.delete(details.requestId);
+      if (platform.detection.trackStart) {
+        lastStartAt.delete(stateKey(req.platformId, req.tabId));
+      }
     }
   }
 }, webRequestFilter, ['responseHeaders']);
 
 // 监听器 3: onCompleted - 处理请求完成
 chrome.webRequest.onCompleted.addListener((details) => {
-  // 首先检查是否有 SSE 流请求状态
+  // 检查是否有之前保存的请求状态
   const req = requestState.get(details.requestId);
   if (req) {
-    if (req.isStream) {
-      // SSE 流完成，发送通知
-      const platform = PLATFORMS.find(p => p.id === req.platformId);
-      if (platform && !isThrottled(platform.id, details.tabId, platform.throttleMs)) {
-        sendNotification(platform, { tabId: details.tabId });
+    const platform = PLATFORMS.find(p => p.id === req.platformId);
+    if (platform) {
+      const key = stateKey(platform.id, details.tabId);
+      const isLatest = latestRequestPerTab.get(key) === details.requestId;
+
+      const duration = Date.now() - req.startTime;
+      
+      // 判断核心逻辑：
+      const isValidStream = req.isStream && duration > 2000;
+      const isValidRequest = platform.detection.type === 'request-complete';
+
+      if (isLatest && (isValidStream || isValidRequest) && !isThrottled(platform.id, details.tabId, platform.throttleMs)) {
+        
+        // 如果是 ChatGPT，稍微等待一下让 pageHook 的 Prompt/Snippet 数据到位
+        const delayMs = platform.id === 'chatgpt' ? 500 : 0;
+        const capturedTabId = details.tabId;
+        const capturedPlatform = platform;
+        
+        setTimeout(() => {
+          let dynamicTitle = undefined;
+          let dynamicMessage = undefined;
+          let iconUrl = undefined;
+
+          if (capturedPlatform.id === 'chatgpt') {
+            iconUrl = 'chatgpt.png';
+          }
+
+          // 读取 pageHook/geminiHook 捕获的 prompt 数据（ChatGPT 和 Gemini 通用）
+          const snippetData = latestSnippetPerTab.get(capturedTabId);
+          if (snippetData) {
+            if (snippetData.prompt) dynamicTitle = snippetData.prompt;
+            if (snippetData.snippet) dynamicMessage = snippetData.snippet;
+            latestSnippetPerTab.delete(capturedTabId);
+          }
+
+          sendNotification(capturedPlatform, { 
+            tabId: capturedTabId,
+            dynamicTitle,
+            dynamicMessage,
+            iconUrl
+          });
+        }, delayMs);
       }
     }
-    // 无论 isStream 是否为 true，都要清理请求状态（防止泄漏）
+    // 无论是否触发通知，请求结束必须清理以防内存泄漏
     cleanupRequest(details.requestId, details.tabId, req.platformId);
     return;
   }
@@ -738,12 +780,6 @@ chrome.webRequest.onCompleted.addListener((details) => {
       cleanupTab(followupPlatform.id, details.tabId);
     }
     return;
-  }
-
-  // 检查是否匹配普通请求完成
-  const platform = findPlatformForRequest(details, 'request-complete');
-  if (platform && !isThrottled(platform.id, details.tabId, platform.throttleMs)) {
-    sendNotification(platform, { tabId: details.tabId });
   }
 }, webRequestFilter);
 
@@ -801,6 +837,25 @@ async function handleStreamEvent(message, sender) {
     return;
   }
 
+  // pageHook/geminiHook 在拦截到请求时立刻发送的 prompt 数据
+  if (eventType === 'chatgpt_prompt_captured' || eventType === 'gemini_prompt_captured') {
+    latestSnippetPerTab.set(tabId, {
+      prompt: eventData.prompt,
+      snippet: ''
+    });
+    return;
+  }
+
+  // pageHook 提供的 ChatGPT 对话快照（流结束时更新，含 snippet）
+  if (eventType === 'chatgpt_generation_finished') {
+    const existing = latestSnippetPerTab.get(tabId) || {};
+    latestSnippetPerTab.set(tabId, {
+      prompt: eventData.prompt || existing.prompt,
+      snippet: eventData.snippet || existing.snippet
+    });
+    return;
+  }
+
   if (!platform || !platform.streamEvents) return;
 
   // 处理思考完成事件
@@ -825,6 +880,7 @@ async function handleStreamEvent(message, sender) {
       title: config.notify.title,
       message: config.notify.message + durationText,
       targetUrl: config.notify.targetUrl,
+      iconUrl: platform.id === 'chatgpt' ? 'chatgpt.png' : 'icon128.png',
       tabId
     });
   }
@@ -832,47 +888,45 @@ async function handleStreamEvent(message, sender) {
 
 // 直接发送通知（不通过平台配置）
 async function sendNotificationDirect(options) {
-  const { title, message, targetUrl, tabId } = options;
+  const { title, message, targetUrl, tabId, iconUrl } = options;
 
-  // 清除旧通知
-  if (currentNotificationId) {
-    chrome.notifications.clear(currentNotificationId);
-    currentNotificationTarget = null;
-  }
-
-  // 生成新通知 ID
-  currentNotificationId = 'ai_notification_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-
-  const normalizedTabId = typeof tabId === 'number' && tabId >= 0 ? tabId : undefined;
-
-  if (normalizedTabId !== undefined || targetUrl) {
-    currentNotificationTarget = {
-      tabId: normalizedTabId,
-      targetUrl
-    };
-  } else {
-    currentNotificationTarget = null;
-  }
-
-  chrome.notifications.create(currentNotificationId, {
-    type: 'basic',
-    iconUrl: 'icon128.png',
-    title,
-    message,
-    priority: 1,
-    silent: true
+  const settings = await chrome.storage.sync.get({ 
+    notificationEnabled: true,
+    soundEnabled: true
   });
 
-  playNotificationSound();
+  if (!settings.notificationEnabled && !settings.soundEnabled) return;
 
-  // 8 秒后自动清除通知
-  setTimeout(() => {
-    if (currentNotificationId) {
-      chrome.notifications.clear(currentNotificationId);
-      currentNotificationId = null;
-      currentNotificationTarget = null;
+  if (settings.notificationEnabled) {
+    const notificationId = 'ai_notification_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const normalizedTabId = typeof tabId === 'number' && tabId >= 0 ? tabId : undefined;
+  
+    if (normalizedTabId !== undefined || targetUrl) {
+      activeNotifications.set(notificationId, {
+        tabId: normalizedTabId,
+        targetUrl
+      });
     }
-  }, 8000);
+  
+    const finalIconUrl = iconUrl ? iconUrl : 'icon128.png';
+    chrome.notifications.create(notificationId, {
+      type: 'basic',
+      iconUrl: finalIconUrl,
+      title,
+      message,
+      priority: 1,
+      silent: true,
+      requireInteraction: false
+    });
+  
+    setTimeout(() => {
+      activeNotifications.delete(notificationId);
+    }, 24 * 60 * 60 * 1000);
+  }
+
+  if (settings.soundEnabled) {
+    playNotificationSound();
+  }
 }
 
 // 独立的节流函数（用于流事件）

@@ -2,10 +2,12 @@
 (function() {
   'use strict';
 
+  const hostname = window.location.hostname;
+
   // 注入 page script 到页面上下文
-  function injectPageScript() {
+  function injectPageScript(scriptName) {
     const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('pageHook.js');
+    script.src = chrome.runtime.getURL(scriptName);
     script.onload = function() {
       this.remove();
     };
@@ -18,7 +20,10 @@
     if (event.source !== window) return;
 
     const message = event.data;
-    if (!message || message.source !== 'chatgpt-reasoning-tap') return;
+    if (!message) return;
+
+    // 支持 ChatGPT 和 Gemini 两种来源
+    if (message.source !== 'chatgpt-reasoning-tap' && message.source !== 'gemini-prompt-tap') return;
 
     // 转发到 background script
     chrome.runtime.sendMessage({
@@ -30,15 +35,23 @@
     }).catch(err => {
       // 忽略扩展上下文失效的错误
       if (!err.message?.includes('Extension context invalidated')) {
-        console.error('[ChatGPT-Content] Send message error:', err);
+        console.error('[Content] Send message error:', err);
       }
     });
   });
 
-  // 页面加载完成后注入
+  // 根据页面域名注入对应的 hook 脚本
+  function inject() {
+    if (hostname.includes('chatgpt.com')) {
+      injectPageScript('pageHook.js');
+    } else if (hostname.includes('gemini.google.com')) {
+      injectPageScript('geminiHook.js');
+    }
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectPageScript);
+    document.addEventListener('DOMContentLoaded', inject);
   } else {
-    injectPageScript();
+    inject();
   }
 })();

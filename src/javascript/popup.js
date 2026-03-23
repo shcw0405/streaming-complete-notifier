@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const chatgptEnabled = document.getElementById('chatgptEnabled');
   const chatgptReasoningEndEnabled = document.getElementById('chatgptReasoningEndEnabled');
   const aistudioEnabled = document.getElementById('aistudioEnabled');
+  const notificationEnabled = document.getElementById('notificationEnabled');
+  const soundEnabled = document.getElementById('soundEnabled');
   const volumeSlider = document.getElementById('volumeSlider');
   const volumeValue = document.getElementById('volumeValue');
   const testButton = document.getElementById('testButton');
@@ -43,6 +45,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (aistudioEnabled) {
     aistudioEnabled.addEventListener('change', saveSettings);
   }
+  if (notificationEnabled) {
+    notificationEnabled.addEventListener('change', saveSettings);
+  }
+  if (soundEnabled) {
+    soundEnabled.addEventListener('change', () => {
+      updateSoundSubState();
+      saveSettings();
+    });
+  }
 
   // 监听音量变化
   volumeSlider.addEventListener('input', () => {
@@ -77,6 +88,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // 更新声音相关子项状态
+  function updateSoundSubState() {
+    if (soundEnabled && volumeSlider) {
+      const parentEnabled = soundEnabled.checked;
+      volumeSlider.disabled = !parentEnabled;
+      const subItem = volumeSlider.closest('.sub-item');
+      if (subItem) {
+        subItem.style.opacity = parentEnabled ? '1' : '0.5';
+        subItem.style.pointerEvents = parentEnabled ? 'auto' : 'none';
+      }
+    }
+  }
+
   async function loadSettings() {
     try {
       settings = await chrome.storage.sync.get({
@@ -84,6 +108,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         chatgptEnabled: true,
         chatgptReasoningEndEnabled: true,
         aistudioEnabled: true,
+        notificationEnabled: true,
+        soundEnabled: true,
         soundVolume: DEFAULT_VOLUME
       });
 
@@ -96,6 +122,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (aistudioEnabled) {
         aistudioEnabled.checked = settings.aistudioEnabled;
       }
+      if (notificationEnabled) {
+        notificationEnabled.checked = settings.notificationEnabled;
+      }
+      if (soundEnabled) {
+        soundEnabled.checked = settings.soundEnabled;
+      }
 
       const sanitizedVolume = clampVolume(settings.soundVolume);
       settings.soundVolume = sanitizedVolume;
@@ -104,6 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // 更新子开关状态
       updateSubSwitchState();
+      updateSoundSubState();
 
     } catch (error) {
       console.error('加载设置失败:', error);
@@ -119,6 +152,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (aistudioEnabled) {
         settings.aistudioEnabled = aistudioEnabled.checked;
+      }
+      if (notificationEnabled) {
+        settings.notificationEnabled = notificationEnabled.checked;
+      }
+      if (soundEnabled) {
+        settings.soundEnabled = soundEnabled.checked;
       }
       settings.soundVolume = clampVolume(volumeSlider.value);
 

@@ -22,7 +22,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*"],
+      "matches": ["https://chatgpt.com/*", "https://gemini.google.com/*"],
       "js": ["content.js"],
       "run_at": "document_start"
     }
@@ -38,8 +38,12 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["audio/*.mp3", "pageHook.js"],
+      "resources": ["audio/*.mp3", "pageHook.js", "chatgpt.png"],
       "matches": ["https://chatgpt.com/*"]
+    },
+    {
+      "resources": ["audio/*.mp3", "geminiHook.js"],
+      "matches": ["https://gemini.google.com/*"]
     }
   ]
 }
