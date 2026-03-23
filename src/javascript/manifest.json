@@ -42,7 +42,7 @@
       "matches": ["https://chatgpt.com/*"]
     },
     {
-      "resources": ["audio/*.mp3", "geminiHook.js"],
+      "resources": ["audio/*.mp3", "geminiHook.js", "gemini-color.png"],
       "matches": ["https://gemini.google.com/*"]
     }
   ]

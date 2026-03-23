@@ -742,6 +742,8 @@ chrome.webRequest.onCompleted.addListener((details) => {
 
           if (capturedPlatform.id === 'chatgpt') {
             iconUrl = 'chatgpt.png';
+          } else if (capturedPlatform.id === 'gemini') {
+            iconUrl = 'gemini-color.png';
           }
 
           // 读取 pageHook/geminiHook 捕获的 prompt 数据（ChatGPT 和 Gemini 通用）
