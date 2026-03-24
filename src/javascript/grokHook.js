@@ -1,48 +1,42 @@
-// Grok Prompt 捕获脚本 - 监听用户输入并发送到后台
+// Grok Prompt 捕获脚本 - 通过拦截 fetch 请求体提取用户提问
 (function() {
   'use strict';
 
   if (window.__grokPromptTapInjected) return;
   window.__grokPromptTapInjected = true;
 
-  let lastTypedPrompt = '';
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
 
-  // Grok 使用 textarea 或 contenteditable 输入框
-  document.addEventListener('input', (e) => {
-    const target = e.target;
-    if (target && target.tagName) {
-      const text = target.innerText || target.value || target.textContent;
-      if (text && text.trim().length > 0) {
-        lastTypedPrompt = text.trim();
+    // 匹配 Grok 的对话请求
+    if (url && /\/rest\/app-chat\/conversations\/[^/]+\/responses$/.test(url) && args[1]?.body) {
+      try {
+        let bodyContent = null;
+        if (typeof args[1].body === 'string') {
+          bodyContent = args[1].body;
+        } else if (args[1].body instanceof Uint8Array) {
+          bodyContent = new TextDecoder().decode(args[1].body);
+        }
+
+        if (bodyContent) {
+          const reqData = JSON.parse(bodyContent);
+          if (reqData.message && typeof reqData.message === 'string') {
+            let prompt = reqData.message.trim();
+            if (prompt.length > 35) prompt = prompt.substring(0, 35) + '...';
+            window.postMessage({
+              source: 'grok-prompt-tap',
+              type: 'grok_prompt_captured',
+              data: { prompt },
+              timestamp: Date.now()
+            }, '*');
+          }
+        }
+      } catch (e) {
+        // 静默忽略解析错误
       }
     }
-  }, true);
 
-  function sendPrompt() {
-    if (!lastTypedPrompt) return;
-    let prompt = lastTypedPrompt;
-    if (prompt.length > 35) prompt = prompt.substring(0, 35) + '...';
-    window.postMessage({
-      source: 'grok-prompt-tap',
-      type: 'grok_prompt_captured',
-      data: { prompt },
-      timestamp: Date.now()
-    }, '*');
-    lastTypedPrompt = '';
-  }
-
-  // 监听 Enter 发送
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      sendPrompt();
-    }
-  }, true);
-
-  // 监听发送按钮点击
-  document.addEventListener('click', (e) => {
-    const sendBtn = e.target.closest('button[aria-label*="Send"], button[aria-label*="发送"], button[type="submit"]');
-    if (sendBtn) {
-      sendPrompt();
-    }
-  }, true);
+    return originalFetch.apply(this, args);
+  };
 })();
