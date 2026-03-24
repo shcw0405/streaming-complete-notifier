@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AI 回答完成提醒器 (Gemini & ChatGPT & AI Studio)",
+  "name": "AI 回答完成提醒器 (Gemini & ChatGPT & Grok & AI Studio)",
   "version": "1.1.0",
-  "description": "当 Gemini、ChatGPT 或 AI Studio 完成回答生成时，发送桌面通知和声音提醒。支持 ChatGPT 思考完成检测。",
+  "description": "当 Gemini、ChatGPT、Grok 或 AI Studio 完成回答生成时，发送桌面通知和声音提醒。支持 ChatGPT 思考完成检测。",
   "permissions": [
     "notifications",
     "webRequest",
@@ -15,7 +15,8 @@
     "https://gemini.google.com/*",
     "https://chatgpt.com/*",
     "https://aistudio.google.com/*",
-    "https://*.clients6.google.com/*"
+    "https://*.clients6.google.com/*",
+    "https://grok.com/*"
   ],
   "background": {
     "service_worker": "background.js"

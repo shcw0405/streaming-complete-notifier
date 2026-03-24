@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const geminiEnabled = document.getElementById('geminiEnabled');
   const chatgptEnabled = document.getElementById('chatgptEnabled');
   const chatgptReasoningEndEnabled = document.getElementById('chatgptReasoningEndEnabled');
+  const grokEnabled = document.getElementById('grokEnabled');
   const aistudioEnabled = document.getElementById('aistudioEnabled');
   const notificationEnabled = document.getElementById('notificationEnabled');
   const soundEnabled = document.getElementById('soundEnabled');
@@ -44,6 +45,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (aistudioEnabled) {
     aistudioEnabled.addEventListener('change', saveSettings);
+  }
+  if (grokEnabled) {
+    grokEnabled.addEventListener('change', saveSettings);
   }
   if (notificationEnabled) {
     notificationEnabled.addEventListener('change', saveSettings);
@@ -107,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         geminiEnabled: true,
         chatgptEnabled: true,
         chatgptReasoningEndEnabled: true,
+        grokEnabled: true,
         aistudioEnabled: true,
         notificationEnabled: true,
         soundEnabled: true,
@@ -118,6 +123,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       chatgptEnabled.checked = settings.chatgptEnabled;
       if (chatgptReasoningEndEnabled) {
         chatgptReasoningEndEnabled.checked = settings.chatgptReasoningEndEnabled;
+      }
+      if (grokEnabled) {
+        grokEnabled.checked = settings.grokEnabled;
       }
       if (aistudioEnabled) {
         aistudioEnabled.checked = settings.aistudioEnabled;
@@ -149,6 +157,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       settings.chatgptEnabled = chatgptEnabled.checked;
       if (chatgptReasoningEndEnabled) {
         settings.chatgptReasoningEndEnabled = chatgptReasoningEndEnabled.checked;
+      }
+      if (grokEnabled) {
+        settings.grokEnabled = grokEnabled.checked;
       }
       if (aistudioEnabled) {
         settings.aistudioEnabled = aistudioEnabled.checked;

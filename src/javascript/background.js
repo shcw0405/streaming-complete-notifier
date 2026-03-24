@@ -86,6 +86,23 @@ const PLATFORMS = [
     throttleMs: 4000
   },
   {
+    id: 'grok',
+    name: 'Grok',
+    enabledKey: 'grokEnabled',
+    hosts: ['grok.com'],
+    match: {
+      method: 'POST',
+      pathPattern: /^\/rest\/app-chat\/conversations\/[^/]+\/responses$/
+    },
+    detection: { type: 'request-complete' },
+    notify: {
+      title: 'Grok 生成完成',
+      message: '当前页面的回答已生成完成。',
+      targetUrl: 'https://grok.com/'
+    },
+    throttleMs: 2000
+  },
+  {
     id: 'aistudio',
     name: 'AI Studio',
     enabledKey: 'aistudioEnabled',
@@ -744,6 +761,8 @@ chrome.webRequest.onCompleted.addListener((details) => {
             iconUrl = 'chatgpt.png';
           } else if (capturedPlatform.id === 'gemini') {
             iconUrl = 'gemini-color.png';
+          } else if (capturedPlatform.id === 'grok') {
+            iconUrl = 'grok.png';
           }
 
           // 读取 pageHook/geminiHook 捕获的 prompt 数据（ChatGPT 和 Gemini 通用）
