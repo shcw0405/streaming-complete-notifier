@@ -1,10 +1,13 @@
-// Gemini Prompt 捕获脚本 - 监听用户输入并发送到后台
+// Grok Prompt 捕获脚本 - 监听用户输入并发送到后台
 (function() {
   'use strict';
 
+  if (window.__grokPromptTapInjected) return;
+  window.__grokPromptTapInjected = true;
+
   let lastTypedPrompt = '';
 
-  // Gemini 使用 rich text editor，监听 input 事件
+  // Grok 使用 textarea 或 contenteditable 输入框
   document.addEventListener('input', (e) => {
     const target = e.target;
     if (target && target.tagName) {
@@ -20,27 +23,25 @@
     let prompt = lastTypedPrompt;
     if (prompt.length > 35) prompt = prompt.substring(0, 35) + '...';
     window.postMessage({
-      source: 'gemini-prompt-tap',
-      type: 'gemini_prompt_captured',
+      source: 'grok-prompt-tap',
+      type: 'grok_prompt_captured',
       data: { prompt },
       timestamp: Date.now()
     }, '*');
     lastTypedPrompt = '';
   }
 
-  // 监听表单提交和按键（Enter 发送）
+  // 监听 Enter 发送
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && lastTypedPrompt) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       sendPrompt();
     }
   }, true);
 
-  // 也监听发送按钮点击
+  // 监听发送按钮点击
   document.addEventListener('click', (e) => {
-    const target = e.target;
-    // Gemini 的发送按钮通常在 mat-icon 或 button 内
-    const sendBtn = target.closest('button[aria-label*="Send"], button[aria-label*="发送"], .send-button, [data-mat-icon-name="send"]');
-    if (sendBtn && lastTypedPrompt) {
+    const sendBtn = e.target.closest('button[aria-label*="Send"], button[aria-label*="发送"], button[type="submit"]');
+    if (sendBtn) {
       sendPrompt();
     }
   }, true);

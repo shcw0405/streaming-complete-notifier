@@ -747,8 +747,8 @@ chrome.webRequest.onCompleted.addListener((details) => {
 
       if (isLatest && (isValidStream || isValidRequest) && !isThrottled(platform.id, details.tabId, platform.throttleMs)) {
         
-        // 如果是 ChatGPT，稍微等待一下让 pageHook 的 Prompt/Snippet 数据到位
-        const delayMs = platform.id === 'chatgpt' ? 500 : 0;
+        // 稍微等待一下让 hook 脚本的 Prompt 数据到位
+        const delayMs = (platform.id === 'chatgpt' || platform.id === 'gemini' || platform.id === 'grok') ? 500 : 0;
         const capturedTabId = details.tabId;
         const capturedPlatform = platform;
         
@@ -859,7 +859,7 @@ async function handleStreamEvent(message, sender) {
   }
 
   // pageHook/geminiHook 在拦截到请求时立刻发送的 prompt 数据
-  if (eventType === 'chatgpt_prompt_captured' || eventType === 'gemini_prompt_captured') {
+  if (eventType === 'chatgpt_prompt_captured' || eventType === 'gemini_prompt_captured' || eventType === 'grok_prompt_captured') {
     latestSnippetPerTab.set(tabId, {
       prompt: eventData.prompt,
       snippet: ''

@@ -23,7 +23,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*", "https://gemini.google.com/*"],
+      "matches": ["https://chatgpt.com/*", "https://gemini.google.com/*", "https://grok.com/*"],
       "js": ["content.js"],
       "run_at": "document_start"
     }
@@ -45,6 +45,10 @@
     {
       "resources": ["audio/*.mp3", "geminiHook.js", "gemini-color.png"],
       "matches": ["https://gemini.google.com/*"]
+    },
+    {
+      "resources": ["audio/*.mp3", "grokHook.js", "grok.png"],
+      "matches": ["https://grok.com/*"]
     }
   ]
 }

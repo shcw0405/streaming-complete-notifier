@@ -22,8 +22,8 @@
     const message = event.data;
     if (!message) return;
 
-    // 支持 ChatGPT 和 Gemini 两种来源
-    if (message.source !== 'chatgpt-reasoning-tap' && message.source !== 'gemini-prompt-tap') return;
+    // 支持 ChatGPT、Gemini 和 Grok 三种来源
+    if (message.source !== 'chatgpt-reasoning-tap' && message.source !== 'gemini-prompt-tap' && message.source !== 'grok-prompt-tap') return;
 
     // 转发到 background script
     chrome.runtime.sendMessage({
@@ -46,6 +46,8 @@
       injectPageScript('pageHook.js');
     } else if (hostname.includes('gemini.google.com')) {
       injectPageScript('geminiHook.js');
+    } else if (hostname.includes('grok.com')) {
+      injectPageScript('grokHook.js');
     }
   }
 
