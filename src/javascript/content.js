@@ -41,39 +41,59 @@
   });
 
   // ===========================================
-  // 标签页保活功能 - 防止 Chrome 冻结后台标签页
+  // 标签页保活功能 - 防止 Chrome 冻结/丢弃后台标签页
   // ===========================================
 
-  let keepAliveWorker = null;
+  let keepAliveAudioCtx = null;
+  let keepAliveOscillator = null;
+  let keepAliveStarted = false;
 
   function startKeepAlive() {
-    if (keepAliveWorker) return;
+    if (keepAliveStarted) return;
+    keepAliveStarted = true;
 
-    // 用 inline Web Worker 周期性发送消息，阻止 Chrome 冻结标签页
-    const workerCode = `
-      let intervalId = null;
-      self.onmessage = function(e) {
-        if (e.data === 'start') {
-          if (intervalId) clearInterval(intervalId);
-          intervalId = setInterval(() => { self.postMessage('ping'); }, 20000);
-        } else if (e.data === 'stop') {
-          if (intervalId) { clearInterval(intervalId); intervalId = null; }
-        }
-      };
-    `;
-    const blob = new Blob([workerCode], { type: 'application/javascript' });
-    keepAliveWorker = new Worker(URL.createObjectURL(blob));
-    keepAliveWorker.onmessage = () => {
-      // 收到 ping 即可，保持主线程活跃
-    };
-    keepAliveWorker.postMessage('start');
+    // 在用户首次交互后启动 AudioContext（满足 Autoplay Policy）
+    function initAudio() {
+      if (keepAliveAudioCtx) return;
+      try {
+        keepAliveAudioCtx = new AudioContext();
+        // 创建一个几乎无声的振荡器，让 Chrome 认为标签页在播放音频
+        // Chrome 不会冻结或丢弃正在播放音频的标签页
+        keepAliveOscillator = keepAliveAudioCtx.createOscillator();
+        const gainNode = keepAliveAudioCtx.createGain();
+        gainNode.gain.value = 0.0001; // 几乎无声，人耳不可感知
+        keepAliveOscillator.connect(gainNode);
+        gainNode.connect(keepAliveAudioCtx.destination);
+        keepAliveOscillator.start();
+      } catch (e) {
+        // 静默忽略
+      }
+    }
+
+    // AudioContext 需要用户交互后才能启动，监听首次交互
+    const interactionEvents = ['click', 'keydown', 'touchstart'];
+    function onFirstInteraction() {
+      interactionEvents.forEach(evt => document.removeEventListener(evt, onFirstInteraction, true));
+      initAudio();
+    }
+    interactionEvents.forEach(evt => document.addEventListener(evt, onFirstInteraction, true));
+
+    // 如果页面已有用户交互历史，直接尝试启动
+    initAudio();
+    if (keepAliveAudioCtx && keepAliveAudioCtx.state === 'suspended') {
+      // 需要等用户交互，上面的监听器会处理
+    }
   }
 
   function stopKeepAlive() {
-    if (keepAliveWorker) {
-      keepAliveWorker.postMessage('stop');
-      keepAliveWorker.terminate();
-      keepAliveWorker = null;
+    keepAliveStarted = false;
+    if (keepAliveOscillator) {
+      try { keepAliveOscillator.stop(); } catch (e) {}
+      keepAliveOscillator = null;
+    }
+    if (keepAliveAudioCtx) {
+      try { keepAliveAudioCtx.close(); } catch (e) {}
+      keepAliveAudioCtx = null;
     }
   }
 
