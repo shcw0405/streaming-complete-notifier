@@ -40,6 +40,71 @@
     });
   });
 
+  // ===========================================
+  // 标签页保活功能 - 防止 Chrome 冻结后台标签页
+  // ===========================================
+
+  let keepAliveWorker = null;
+
+  function startKeepAlive() {
+    if (keepAliveWorker) return;
+
+    // 用 inline Web Worker 周期性发送消息，阻止 Chrome 冻结标签页
+    const workerCode = `
+      let intervalId = null;
+      self.onmessage = function(e) {
+        if (e.data === 'start') {
+          if (intervalId) clearInterval(intervalId);
+          intervalId = setInterval(() => { self.postMessage('ping'); }, 20000);
+        } else if (e.data === 'stop') {
+          if (intervalId) { clearInterval(intervalId); intervalId = null; }
+        }
+      };
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    keepAliveWorker = new Worker(URL.createObjectURL(blob));
+    keepAliveWorker.onmessage = () => {
+      // 收到 ping 即可，保持主线程活跃
+    };
+    keepAliveWorker.postMessage('start');
+  }
+
+  function stopKeepAlive() {
+    if (keepAliveWorker) {
+      keepAliveWorker.postMessage('stop');
+      keepAliveWorker.terminate();
+      keepAliveWorker = null;
+    }
+  }
+
+  // 根据设置决定是否启用保活
+  function updateKeepAlive() {
+    chrome.storage.sync.get({ tabKeepAliveEnabled: false }, (result) => {
+      if (result.tabKeepAliveEnabled) {
+        startKeepAlive();
+      } else {
+        stopKeepAlive();
+      }
+    });
+  }
+
+  // 监听设置变化，实时响应开关
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.tabKeepAliveEnabled) {
+      if (changes.tabKeepAliveEnabled.newValue) {
+        startKeepAlive();
+      } else {
+        stopKeepAlive();
+      }
+    }
+  });
+
+  updateKeepAlive();
+
+  // ===========================================
+  // 注入 hook 脚本
+  // ===========================================
+
   // 根据页面域名注入对应的 hook 脚本
   function inject() {
     if (hostname.includes('chatgpt.com')) {
