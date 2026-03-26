@@ -19,6 +19,21 @@
 3. 点击“加载已解压的扩展程序”，选择仓库中的 `src/javascript` 目录。
 4. 在目标 AI 页面触发生成流程，确认通知与跳转逻辑工作正常。
 
+## 推荐设置：防止标签页休眠
+
+Chrome 会自动休眠长时间不活跃的后台标签页，导致 AI 回答完成后无法及时收到通知。建议将 AI 站点加入 Chrome 的保活白名单：
+
+1. 点击 Chrome 右上角 **⋮** → **设置**
+2. 左侧选择 **系统和性能** → **性能**
+3. 找到「**使这些站点保持活动状态**」，点击 **添加站点**
+4. 依次添加以下地址：
+   - `https://chatgpt.com`
+   - `https://gemini.google.com`
+   - `https://grok.com`
+   - `https://aistudio.google.com`
+
+加入白名单后，这些站点的标签页将不会被 Chrome 休眠或丢弃，确保通知始终及时送达。
+
 ## 发布打包
 1. 将 `src/javascript` 目录下的文件打包为 zip（保持目录结构）。
 2. 按 Chrome Web Store 或 Edge Add-ons 的要求上传该压缩包完成发布。
