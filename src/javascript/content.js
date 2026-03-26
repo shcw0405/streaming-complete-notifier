@@ -42,6 +42,13 @@
 
   // 根据页面域名注入对应的 hook 脚本
   function inject() {
+    // 根据设置注入 Visibility API 伪装脚本（防止 AI 页面在后台暂停）
+    chrome.storage.sync.get({ tabKeepAliveEnabled: false }, (result) => {
+      if (result.tabKeepAliveEnabled) {
+        injectPageScript('visibilitySpoof.js');
+      }
+    });
+
     if (hostname.includes('chatgpt.com')) {
       injectPageScript('pageHook.js');
     } else if (hostname.includes('gemini.google.com')) {

@@ -8,6 +8,7 @@
 - **智能防误报机制**：内置请求耗时校验（Duration Check），有效过滤回车发送瞬间引发的极速预检请求（<1.5s），杜绝误报响铃。
 - **持久化系统通知与任意门跳转**：拥抱操作系统原生通知中心（支持 macOS / Windows 通知记录留存）。打破原有 8 秒强制销毁，支持随时点击历史通知，精准拉起/重装并激活触发提问的独立 AI 网页。
 - **自定义后台提示音**：100% 为基准音量，150% 为最大音量。
+- **后台保活（防切走暂停）**：ChatGPT 等 AI 页面会通过 [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API) 检测标签页是否在前台，切走后会[暂停流式传输](https://community.openai.com/t/chatgpt-pausing-completion-if-you-switch-tabs-30-11-2023/535273)。开启此选项后，扩展会伪装 Visibility API，让页面始终认为自己在前台，避免后台暂停。
 
 ## 环境准备
 - 任意支持 Chrome 扩展开发的操作系统（Windows / macOS / Linux）
