@@ -5,7 +5,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const chatgptReasoningEndEnabled = document.getElementById('chatgptReasoningEndEnabled');
   const grokEnabled = document.getElementById('grokEnabled');
   const aistudioEnabled = document.getElementById('aistudioEnabled');
-  const tabKeepAliveEnabled = document.getElementById('tabKeepAliveEnabled');
   const notificationEnabled = document.getElementById('notificationEnabled');
   const soundEnabled = document.getElementById('soundEnabled');
   const volumeSlider = document.getElementById('volumeSlider');
@@ -49,9 +48,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (grokEnabled) {
     grokEnabled.addEventListener('change', saveSettings);
-  }
-  if (tabKeepAliveEnabled) {
-    tabKeepAliveEnabled.addEventListener('change', saveSettings);
   }
   if (notificationEnabled) {
     notificationEnabled.addEventListener('change', saveSettings);
@@ -117,7 +113,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         chatgptReasoningEndEnabled: true,
         grokEnabled: true,
         aistudioEnabled: true,
-        tabKeepAliveEnabled: false,
         notificationEnabled: true,
         soundEnabled: true,
         soundVolume: DEFAULT_VOLUME
@@ -134,9 +129,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (aistudioEnabled) {
         aistudioEnabled.checked = settings.aistudioEnabled;
-      }
-      if (tabKeepAliveEnabled) {
-        tabKeepAliveEnabled.checked = settings.tabKeepAliveEnabled;
       }
       if (notificationEnabled) {
         notificationEnabled.checked = settings.notificationEnabled;
@@ -171,9 +163,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (aistudioEnabled) {
         settings.aistudioEnabled = aistudioEnabled.checked;
-      }
-      if (tabKeepAliveEnabled) {
-        settings.tabKeepAliveEnabled = tabKeepAliveEnabled.checked;
       }
       if (notificationEnabled) {
         settings.notificationEnabled = notificationEnabled.checked;
