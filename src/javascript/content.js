@@ -3,6 +3,8 @@
   'use strict';
 
   const hostname = window.location.hostname;
+  // 无条件 boot 日志：用于确认 content script 已运行
+  console.log('[ChatGPT-Tap][Boot] content.js 已运行 @', hostname);
 
   // 注入 page script 到页面上下文
   function injectPageScript(scriptName) {
