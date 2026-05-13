@@ -282,6 +282,14 @@
       <span class="slider"></span>
     </label>
   </div>
+
+  <div class="menu-item sub-item">
+    <div class="item-label">└ 诊断模式</div>
+    <label class="toggle-switch">
+      <input type="checkbox" id="chatgptDiagnosticModeEnabled">
+      <span class="slider"></span>
+    </label>
+  </div>
   
   <div class="menu-item">
     <div class="item-label">Grok</div>
@@ -338,6 +346,16 @@
   <div class="menu-item">
     <div class="item-label">测试</div>
     <button class="test-button" id="testButton">播放</button>
+  </div>
+
+  <div class="menu-item">
+    <div class="item-label">诊断日志</div>
+    <button class="test-button" id="copyDiagButton">复制</button>
+  </div>
+
+  <div class="menu-item">
+    <div class="item-label">清空诊断日志</div>
+    <button class="test-button" id="clearDiagButton">清空</button>
   </div>
   
   <script src="popup.js"></script>

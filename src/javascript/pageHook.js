@@ -15,6 +15,122 @@
 
   const DEBUG = false;
   const log = (...args) => DEBUG && console.log('[ChatGPT-Tap]', ...args);
+  const DIAGNOSTIC = document.currentScript?.dataset?.diagnostic === 'true'
+    || window.localStorage?.getItem('chatgptTapDiagnostic') === '1';
+  const diagSessionStart = Date.now();
+
+  function getDataType(data) {
+    if (typeof data === 'string') return 'string';
+    if (typeof Blob !== 'undefined' && data instanceof Blob) return 'Blob';
+    if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) return 'ArrayBuffer';
+    if (ArrayBuffer.isView(data)) return data.constructor?.name || 'TypedArray';
+    return typeof data;
+  }
+
+  function safePath(rawUrl) {
+    try {
+      const u = new URL(rawUrl, location.href);
+      return u.pathname;
+    } catch {
+      return '';
+    }
+  }
+
+  function findFirstByKey(obj, keys, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 8) return undefined;
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        return obj[key];
+      }
+    }
+    if (Array.isArray(obj)) {
+      for (const value of obj) {
+        const found = findFirstByKey(value, keys, depth + 1);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    }
+    for (const key in obj) {
+      const value = obj[key];
+      if (value && typeof value === 'object') {
+        const found = findFirstByKey(value, keys, depth + 1);
+        if (found !== undefined) return found;
+      }
+    }
+    return undefined;
+  }
+
+  function hasKeyOrString(obj, keyName, stringNeedle, depth = 0) {
+    if (obj == null || depth > 8) return false;
+    if (typeof obj === 'string') return stringNeedle ? obj.includes(stringNeedle) : false;
+    if (typeof obj !== 'object') return false;
+    if (!Array.isArray(obj) && Object.prototype.hasOwnProperty.call(obj, keyName)) return true;
+    const values = Array.isArray(obj) ? obj : Object.values(obj);
+    return values.some(value => hasKeyOrString(value, keyName, stringNeedle, depth + 1));
+  }
+
+  function hasNonNullKey(obj, keyName, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 8) return false;
+    if (!Array.isArray(obj) && Object.prototype.hasOwnProperty.call(obj, keyName)) {
+      return obj[keyName] != null;
+    }
+    const values = Array.isArray(obj) ? obj : Object.values(obj);
+    return values.some(value => hasNonNullKey(value, keyName, depth + 1));
+  }
+
+  function summarizeEventObject(obj, extra = {}) {
+    const data = obj?.v?.message || obj?.message || obj || {};
+    const response = findFirstByKey(obj, ['response']);
+    const item = findFirstByKey(obj, ['item']);
+    const ghostrider = findFirstByKey(obj, ['ghostrider']);
+    const metadata = data?.metadata || findFirstByKey(obj, ['metadata']) || {};
+    const model = metadata.model_slug || findFirstByKey(obj, ['model_slug', 'model']);
+
+    const summary = {
+      time: new Date().toISOString(),
+      t_ms: Date.now() - diagSessionStart,
+      event_type: extra.eventType || obj?.type || obj?.event || obj?.marker || null,
+      response_id: obj?.response?.id || (response && typeof response === 'object' ? response.id : undefined) || obj?.response_id,
+      item_type: obj?.item?.type || (item && typeof item === 'object' ? item.type : undefined),
+      item_status: obj?.item?.status || (item && typeof item === 'object' ? item.status : undefined),
+      message_status: data?.status || undefined,
+      recipient: findFirstByKey(obj, ['recipient']),
+      name: findFirstByKey(obj, ['name']),
+      tool: findFirstByKey(obj, ['tool', 'tool_name']),
+      channel: data?.channel || findFirstByKey(obj, ['channel']),
+      model,
+      conversation_async_status: findFirstByKey(obj, ['conversation_async_status']),
+      ghostrider_status: ghostrider && typeof ghostrider === 'object' ? ghostrider.status : undefined,
+      has_image_asset_pointer: hasKeyOrString(obj, 'image_asset_pointer', 'image_asset_pointer'),
+      has_result: hasNonNullKey(obj, 'result'),
+      request_path: extra.requestPath
+    };
+
+    for (const key of Object.keys(summary)) {
+      if (summary[key] === undefined || summary[key] === '') delete summary[key];
+    }
+    return summary;
+  }
+
+  function diagLog(type, data = {}) {
+    if (!DIAGNOSTIC) return;
+    const payload = {
+      time: new Date().toISOString(),
+      t_ms: Date.now() - diagSessionStart,
+      type,
+      ...data
+    };
+    console.log('[ChatGPT-Diag]', payload);
+    emit('chatgpt_diagnostic_event', payload);
+  }
+
+  function diagLogObject(type, obj, extra = {}) {
+    if (!DIAGNOSTIC) return;
+    diagLog(type, {
+      ...extra,
+      ...summarizeEventObject(obj, extra)
+    });
+  }
 
   // 稳妥提取用户提问：全局监听输入框输入
   let lastTypedPrompt = '';
@@ -43,7 +159,7 @@
   //   完成：
   //     - "image_asset_pointer" + channel:"final"（图最终展示）
   //     - "ghostrider":{"status":"final"}（异步任务最终完成）
-  //     - "conversation_async_status":4（异步状态码 4=完成）
+  //     - 注意：conversation_async_status=4 不能单独当完成信号；真实样本里取消后也会出现，且后续可能恢复产图
   const wsTapState = {
     hasEmittedStart: false,    // 当前 turn 是否已 emit 画图开始信号
     hasEmittedFinished: false  // 当前 turn 是否已 emit 画图完成信号
@@ -52,6 +168,7 @@
   function resetWsTapState() {
     wsTapState.hasEmittedStart = false;
     wsTapState.hasEmittedFinished = false;
+    diagLog('turn_state_reset');
     // 新一轮 turn 开始时清掉上一轮的 DOM observer，避免跨 turn 触发
     stopImageMutationObserver();
   }
@@ -82,11 +199,9 @@
 
   function detectWsImageGenFinished(text) {
     // 强信号 1：异步任务最终完成
-    if (text.includes('"ghostrider":{"status":"final"}')) return 'ghostrider_final';
+    if (text.includes('"ghostrider":{"status":"final"}') && text.includes('"image_asset_pointer"')) return 'ghostrider_final';
     // 强信号 2：图片在 final channel 出现（最终展示给用户）
     if (text.includes('"image_asset_pointer"') && text.includes('"channel":"final"')) return 'image_final';
-    // 强信号 3：异步状态码 4 = 任务完成
-    if (text.includes('"conversation_async_status":4')) return 'async_status_4';
     return null;
   }
 
@@ -151,6 +266,14 @@
   function detectImageGenStartFromObj(obj, depth = 0) {
     if (!obj || typeof obj !== 'object' || depth > 8) return null;
 
+    const ghostrider = findFirstByKey(obj, ['ghostrider']);
+    if (ghostrider && typeof ghostrider === 'object' && ghostrider.status === 'intermediate') {
+      return 'ghostrider_intermediate';
+    }
+    if (findFirstByKey(obj, ['conversation_async_status']) === 5) {
+      return 'async_status_5';
+    }
+
     // Responses API：response.output_item.added + image_generation_call
     if (obj.type === 'response.output_item.added' && obj.item?.type === 'image_generation_call') {
       return 'output_item_added';
@@ -185,6 +308,16 @@
   // 递归检测：画图完成（强 → 弱）
   function detectImageGenFinishedFromObj(obj, depth = 0) {
     if (!obj || typeof obj !== 'object' || depth > 8) return null;
+
+    const data = obj?.v?.message || obj?.message || obj || {};
+    const hasImageAssetPointer = hasKeyOrString(obj, 'image_asset_pointer', 'image_asset_pointer');
+    if (data.channel === 'final' && hasImageAssetPointer) {
+      return 'image_final';
+    }
+    const ghostrider = findFirstByKey(obj, ['ghostrider']);
+    if (ghostrider && typeof ghostrider === 'object' && ghostrider.status === 'final' && hasImageAssetPointer) {
+      return 'ghostrider_final';
+    }
 
     // 强信号：response.output_item.done + image_generation_call + result 存在
     if (obj.type === 'response.output_item.done'
@@ -271,6 +404,7 @@
     }
     wsTapState.hasEmittedFinished = true;
     console.log('[ChatGPT-Tap][DOM] 画图完成信号 (img onload):', reason);
+    diagLog('image_gen_finished_signal', { source: 'dom', signal: reason });
     emit('chatgpt_image_gen_finished', { source: 'dom', signal: reason });
     stopImageMutationObserver();
   }
@@ -309,9 +443,11 @@
       imgObserverState.observer = observer;
       imgObserverState.timeoutId = setTimeout(() => {
         console.log('[ChatGPT-Tap][DOM] MutationObserver 超时自动停');
+        diagLog('image_observer_timeout');
         stopImageMutationObserver();
       }, IMG_OBSERVER_TIMEOUT_MS);
       console.log('[ChatGPT-Tap][DOM] MutationObserver 启动');
+      diagLog('image_observer_started');
     } catch (e) {
       console.warn('[ChatGPT-Tap][DOM] observer 启动失败:', e);
     }
@@ -339,12 +475,39 @@
       text = data;
     } else {
       // 二进制消息暂不解析（ChatGPT 的 celsius 消息基本是文本 JSON）
+      diagLog('ws_frame_binary', {
+        data_type: getDataType(data),
+        byte_length: data?.byteLength || data?.size || null
+      });
       return;
     }
     if (!text) return;
 
     // JSON 优先解析（解析失败返回空数组，纯字符串路径仍可工作）
     const objects = parseWsTextToObjects(text);
+    if (DIAGNOSTIC) {
+      if (objects.length > 0) {
+        for (const obj of objects) {
+          diagLogObject('ws_frame', obj, {
+            data_type: 'string',
+            byte_length: text.length,
+            object_count: objects.length,
+            request_path: '/celsius/ws'
+          });
+        }
+      } else {
+        diagLog('ws_frame_text_unparsed', {
+          data_type: 'string',
+          byte_length: text.length,
+          object_count: 0,
+          request_path: '/celsius/ws',
+          has_image_asset_pointer: text.includes('image_asset_pointer'),
+          has_ghostrider: text.includes('"ghostrider"'),
+          has_image_gen: text.includes('image_gen'),
+          has_async_status_4: text.includes('"conversation_async_status":4')
+        });
+      }
+    }
 
     // ===== 1. 失败信号最高优先级（避免被开始/完成挡住） =====
     if (wsTapState.hasEmittedStart && !wsTapState.hasEmittedFinished) {
@@ -356,6 +519,7 @@
       if (failedSignal) {
         wsTapState.hasEmittedFinished = true;
         console.log('[ChatGPT-Tap][WS] 画图失败信号:', failedSignal);
+        diagLog('image_gen_failed_signal', { source: 'ws', signal: failedSignal });
         emit('chatgpt_image_gen_failed', { source: 'ws', signal: failedSignal });
         stopImageMutationObserver();
         return;
@@ -375,6 +539,7 @@
       if (startSignal) {
         wsTapState.hasEmittedStart = true;
         console.log('[ChatGPT-Tap][WS] 画图开始信号:', startSignal);
+        diagLog('image_gen_started_signal', { source: 'ws', signal: startSignal });
         emit('chatgpt_image_gen_started', { source: 'ws', signal: startSignal });
         // 启动 DOM 兜底观察器
         startImageMutationObserver();
@@ -394,6 +559,7 @@
       if (finishSignal) {
         wsTapState.hasEmittedFinished = true;
         console.log('[ChatGPT-Tap][WS] 画图完成信号:', finishSignal);
+        diagLog('image_gen_finished_signal', { source: 'ws', signal: finishSignal });
         emit('chatgpt_image_gen_finished', { source: 'ws', signal: finishSignal });
         stopImageMutationObserver();
       }
@@ -409,7 +575,8 @@
 
         if (!shouldTapWsUrl(url)) return ws;
 
-        console.log('[ChatGPT-Tap][WS] Connection opened:', String(url).slice(0, 120));
+        console.log('[ChatGPT-Tap][WS] Connection opened:', safePath(url) || '/celsius/ws');
+        diagLog('ws_opened', { request_path: safePath(url) || '/celsius/ws' });
 
         // 拦截 addEventListener('message', ...)
         const origAddEventListener = ws.addEventListener.bind(ws);
@@ -460,12 +627,13 @@
 
   // SSE 流解析器
   class SSEParser {
-    constructor(onEvent, startTime) {
+    constructor(onEvent, startTime, requestPath) {
       this.buffer = '';
       this.onEvent = onEvent;
       this.decoder = new TextDecoder();
       this.promptText = '';
       this.startTime = startTime;
+      this.requestPath = requestPath;
       this.state = {
         isReasoning: false,
         reasoningStartTime: null,
@@ -481,6 +649,11 @@
       // 搜索/工具初始化等不含回答的 SSE 流会被静默过滤
       if (!this.state.hasEmittedFinished && this.state.hasSeenContent) {
         this.state.hasEmittedFinished = true;
+        diagLog('sse_generation_finished', {
+          request_path: this.requestPath,
+          duration_ms: Date.now() - this.startTime,
+          has_seen_content: true
+        });
         this.onEvent('chatgpt_generation_finished', {
           prompt: this.promptText,
           snippet: this.state.outputSnippet,
@@ -532,6 +705,10 @@
 
       try {
         const obj = JSON.parse(dataLine);
+        diagLogObject('sse_event', obj, {
+          sse_event: eventType,
+          request_path: this.requestPath
+        });
         this.handleParsedData(obj, eventType);
       } catch (e) {
         // 可能是多行 data，尝试合并
@@ -542,6 +719,10 @@
         if (fullData && fullData !== '[DONE]') {
           try {
             const obj = JSON.parse(fullData);
+            diagLogObject('sse_event', obj, {
+              sse_event: eventType,
+              request_path: this.requestPath
+            });
             this.handleParsedData(obj, eventType);
           } catch (e2) {
             log('Parse error:', e2.message);
@@ -568,6 +749,11 @@
           messageId: data.id,
           model: metadata.model_slug
         });
+        diagLog('reasoning_start_signal', {
+          request_path: this.requestPath,
+          message_id: data.id,
+          model: metadata.model_slug
+        });
       }
 
       // 检测思考结束
@@ -581,6 +767,12 @@
           durationSec: duration,
           model: metadata.model_slug
         });
+        diagLog('reasoning_end_signal', {
+          request_path: this.requestPath,
+          message_id: data.id,
+          duration_sec: duration,
+          model: metadata.model_slug
+        });
       }
 
       // 检测开始输出（第一个用户可见 token）
@@ -589,6 +781,11 @@
         emit('first_token', {
           messageId: obj.message_id,
           conversationId: obj.conversation_id
+        });
+        diagLog('first_token_signal', {
+          request_path: this.requestPath,
+          message_id: obj.message_id,
+          conversation_id: obj.conversation_id
         });
         // 重置状态，准备下一轮
         this.state.isReasoning = false;
@@ -600,12 +797,20 @@
         emit('cot_token_start', {
           messageId: obj.message_id
         });
+        diagLog('cot_token_start_signal', {
+          request_path: this.requestPath,
+          message_id: obj.message_id
+        });
       }
 
       // 检测最终通道开始输出
       if (data.channel === 'final' && contentType === 'text') {
         if (data.status === 'in_progress') {
           emit('final_output_start', { messageId: data.id });
+          diagLog('final_output_start_signal', {
+            request_path: this.requestPath,
+            message_id: data.id
+          });
         }
         
         if (data.parts && Array.isArray(data.parts) && data.parts.length > 0) {
@@ -636,6 +841,15 @@
 
     const url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
     const isConversationAPI = url && (url.includes('/backend-api/f/conversation') || url.includes('/backend-api/conversation'));
+    const requestPath = safePath(url);
+
+    if (DIAGNOSTIC && requestPath && requestPath.startsWith('/backend-api/')) {
+      diagLog('fetch_request', {
+        request_path: requestPath,
+        method: args[1]?.method || (args[0]?.method || 'GET'),
+        is_conversation_api: !!isConversationAPI
+      });
+    }
 
     // 如果网络包也能拆解成功，进一步确信
     if (isConversationAPI && args[1] && args[1].body) {
@@ -673,6 +887,15 @@
     const contentType = response.headers.get('content-type') || '';
     const isSSE = contentType.includes('text/event-stream');
 
+    if (DIAGNOSTIC && requestPath && requestPath.startsWith('/backend-api/')) {
+      diagLog('fetch_response', {
+        request_path: requestPath,
+        status: response.status,
+        is_sse: isSSE,
+        is_conversation_api: !!isConversationAPI
+      });
+    }
+
     // 调试：记录 SSE 响应
     if (isSSE) {
       log('发现 SSE 响应:', url);
@@ -685,12 +908,14 @@
     log('Intercepted SSE stream:', url);
 
     // 通知 background 新一轮 turn 开始（清理上一轮残留的 expecting-image 状态）
+    diagLog('turn_started', { request_path: requestPath });
     emit('chatgpt_turn_started', {});
     // 同步重置 WebSocket 劫持的 turn 状态，让本轮能重新检测画图信号
     resetWsTapState();
 
     // 立刻发送 prompt 数据到后台（不等流结束，因为真实回答流对 fetch 不可见）
     if (promptExtracted) {
+      diagLog('prompt_captured', { request_path: requestPath, prompt_length: promptExtracted.length });
       emit('chatgpt_prompt_captured', { prompt: promptExtracted });
     }
 
@@ -700,7 +925,7 @@
 
       // 异步解析 tap 流
       const streamStartTime = Date.now();
-      const parser = new SSEParser((type, data) => emit(type, data), streamStartTime);
+      const parser = new SSEParser((type, data) => emit(type, data), streamStartTime, requestPath);
       parser.promptText = promptExtracted;
 
       (async () => {

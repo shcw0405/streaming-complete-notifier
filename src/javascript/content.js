@@ -7,9 +7,12 @@
   console.log('[ChatGPT-Tap][Boot] content.js 已运行 @', hostname);
 
   // 注入 page script 到页面上下文
-  function injectPageScript(scriptName) {
+  function injectPageScript(scriptName, dataAttrs = {}) {
     const script = document.createElement('script');
     script.src = chrome.runtime.getURL(scriptName);
+    for (const [key, value] of Object.entries(dataAttrs)) {
+      script.dataset[key] = String(value);
+    }
     script.onload = function() {
       this.remove();
     };
@@ -42,22 +45,33 @@
     });
   });
 
+  // 接收 background 的诊断时间线，统一打印到 ChatGPT 页面 DevTools console。
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.action !== 'chatgptDiagnosticEvent' || !message.payload) return;
+    console.log('[ChatGPT-Diag][BG]', message.payload);
+  });
+
   // 根据页面域名注入对应的 hook 脚本
   function inject() {
     // 根据设置注入 Visibility API 伪装脚本（防止 AI 页面在后台暂停）
-    chrome.storage.sync.get({ tabKeepAliveEnabled: false }, (result) => {
+    chrome.storage.sync.get({
+      tabKeepAliveEnabled: false,
+      chatgptDiagnosticModeEnabled: false
+    }, (result) => {
       if (result.tabKeepAliveEnabled) {
         injectPageScript('visibilitySpoof.js');
       }
-    });
 
-    if (hostname.includes('chatgpt.com')) {
-      injectPageScript('pageHook.js');
-    } else if (hostname.includes('gemini.google.com')) {
-      injectPageScript('geminiHook.js');
-    } else if (hostname.includes('grok.com')) {
-      injectPageScript('grokHook.js');
-    }
+      if (hostname.includes('chatgpt.com')) {
+        injectPageScript('pageHook.js', {
+          diagnostic: result.chatgptDiagnosticModeEnabled ? 'true' : 'false'
+        });
+      } else if (hostname.includes('gemini.google.com')) {
+        injectPageScript('geminiHook.js');
+      } else if (hostname.includes('grok.com')) {
+        injectPageScript('grokHook.js');
+      }
+    });
   }
 
   if (document.readyState === 'loading') {

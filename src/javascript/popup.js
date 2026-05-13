@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const geminiEnabled = document.getElementById('geminiEnabled');
   const chatgptEnabled = document.getElementById('chatgptEnabled');
   const chatgptReasoningEndEnabled = document.getElementById('chatgptReasoningEndEnabled');
+  const chatgptDiagnosticModeEnabled = document.getElementById('chatgptDiagnosticModeEnabled');
   const grokEnabled = document.getElementById('grokEnabled');
   const aistudioEnabled = document.getElementById('aistudioEnabled');
   const tabKeepAliveEnabled = document.getElementById('tabKeepAliveEnabled');
@@ -11,6 +12,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const volumeSlider = document.getElementById('volumeSlider');
   const volumeValue = document.getElementById('volumeValue');
   const testButton = document.getElementById('testButton');
+  const copyDiagButton = document.getElementById('copyDiagButton');
+  const clearDiagButton = document.getElementById('clearDiagButton');
 
   const DEFAULT_VOLUME = 1;
   const MAX_VOLUME = 1.5;
@@ -43,6 +46,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   if (chatgptReasoningEndEnabled) {
     chatgptReasoningEndEnabled.addEventListener('change', saveSettings);
+  }
+  if (chatgptDiagnosticModeEnabled) {
+    chatgptDiagnosticModeEnabled.addEventListener('change', saveSettings);
   }
   if (aistudioEnabled) {
     aistudioEnabled.addEventListener('change', saveSettings);
@@ -83,6 +89,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  if (copyDiagButton) {
+    copyDiagButton.addEventListener('click', copyDiagnosticLogs);
+  }
+  if (clearDiagButton) {
+    clearDiagButton.addEventListener('click', clearDiagnosticLogs);
+  }
+
   // 更新子开关状态（根据父开关）
   function updateSubSwitchState() {
     if (chatgptReasoningEndEnabled) {
@@ -90,6 +103,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       chatgptReasoningEndEnabled.disabled = !parentEnabled;
       // 视觉上显示禁用状态
       const subItem = chatgptReasoningEndEnabled.closest('.sub-item');
+      if (subItem) {
+        subItem.style.opacity = parentEnabled ? '1' : '0.5';
+      }
+    }
+    if (chatgptDiagnosticModeEnabled) {
+      const parentEnabled = chatgptEnabled.checked;
+      chatgptDiagnosticModeEnabled.disabled = !parentEnabled;
+      const subItem = chatgptDiagnosticModeEnabled.closest('.sub-item');
       if (subItem) {
         subItem.style.opacity = parentEnabled ? '1' : '0.5';
       }
@@ -115,6 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         geminiEnabled: true,
         chatgptEnabled: true,
         chatgptReasoningEndEnabled: true,
+        chatgptDiagnosticModeEnabled: false,
         grokEnabled: true,
         aistudioEnabled: true,
         tabKeepAliveEnabled: false,
@@ -128,6 +150,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       chatgptEnabled.checked = settings.chatgptEnabled;
       if (chatgptReasoningEndEnabled) {
         chatgptReasoningEndEnabled.checked = settings.chatgptReasoningEndEnabled;
+      }
+      if (chatgptDiagnosticModeEnabled) {
+        chatgptDiagnosticModeEnabled.checked = settings.chatgptDiagnosticModeEnabled;
       }
       if (grokEnabled) {
         grokEnabled.checked = settings.grokEnabled;
@@ -165,6 +190,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       settings.chatgptEnabled = chatgptEnabled.checked;
       if (chatgptReasoningEndEnabled) {
         settings.chatgptReasoningEndEnabled = chatgptReasoningEndEnabled.checked;
+      }
+      if (chatgptDiagnosticModeEnabled) {
+        settings.chatgptDiagnosticModeEnabled = chatgptDiagnosticModeEnabled.checked;
       }
       if (grokEnabled) {
         settings.grokEnabled = grokEnabled.checked;
@@ -205,6 +233,46 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     } catch (error) {
       console.error(`测试音频失败 #${clickId}:`, error);
+    }
+  }
+
+  async function copyDiagnosticLogs() {
+    if (!copyDiagButton) return;
+    const originalText = copyDiagButton.textContent;
+    copyDiagButton.disabled = true;
+    copyDiagButton.textContent = '复制中...';
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getChatgptDiagnosticLogs' });
+      const logs = Array.isArray(response?.logs) ? response.logs : [];
+      await navigator.clipboard.writeText(JSON.stringify(logs, null, 2));
+      copyDiagButton.textContent = `已复制(${logs.length})`;
+    } catch (error) {
+      console.error('复制诊断日志失败:', error);
+      copyDiagButton.textContent = '复制失败';
+    } finally {
+      setTimeout(() => {
+        copyDiagButton.disabled = false;
+        copyDiagButton.textContent = originalText;
+      }, 1200);
+    }
+  }
+
+  async function clearDiagnosticLogs() {
+    if (!clearDiagButton) return;
+    const originalText = clearDiagButton.textContent;
+    clearDiagButton.disabled = true;
+    clearDiagButton.textContent = '清空中...';
+    try {
+      await chrome.runtime.sendMessage({ action: 'clearChatgptDiagnosticLogs' });
+      clearDiagButton.textContent = '已清空';
+    } catch (error) {
+      console.error('清空诊断日志失败:', error);
+      clearDiagButton.textContent = '清空失败';
+    } finally {
+      setTimeout(() => {
+        clearDiagButton.disabled = false;
+        clearDiagButton.textContent = originalText;
+      }, 1200);
     }
   }
 });

@@ -111,11 +111,11 @@ Chrome 会自动休眠后台标签页，导致回答完成后通知发不出来�
 
 ---
 
-## 彩蛋：终端里用 Claude Code，也能响这一声
+## 彩蛋：终端 AI 编程助手，也能响这一声
 
-如果你除了网页 AI，还在用 [Claude Code](https://claude.com/claude-code) 之类的终端 AI 编程助手——等它写完一段 patch 同样煎熬。**本仓库的提示音 mp3 可以无缝复用过去**，把那条"叮"也搬进终端。
+如果你除了网页 AI，还在用 [Claude Code](https://claude.com/claude-code) 或 [Codex CLI](https://github.com/openai/codex) 之类的终端 AI 编程助手——等它写完一段 patch 同样煎熬。**本仓库的提示音 mp3 可以无缝复用过去**，把那条"叮"也搬进终端。
 
-更妙的是，借助 [`terminal-notifier`](https://github.com/julienXX/terminal-notifier) 这个 macOS 小工具，**点击通知就能自动跳回你跑 Claude Code 的那个 App**（iTerm / VSCode / Terminal / Warp 等），和本扩展在网页上的体验完全一致。
+更妙的是，借助 [`terminal-notifier`](https://github.com/julienXX/terminal-notifier) 这个 macOS 小工具，**点击通知就能自动跳回你跑 AI 的那个 App**（iTerm / VSCode / Terminal / Warp 等），和本扩展在网页上的体验完全一致。
 
 ### 准备：装一下 terminal-notifier
 
@@ -125,7 +125,7 @@ brew install terminal-notifier
 
 首次运行后还需要在 **系统设置 → 通知** 里找到 **terminal-notifier** 一项，把"允许通知"打开。否则 macOS 会静默吞掉所有通知。
 
-### 配置步骤
+### Claude Code 配置
 
 打开你的 Claude Code 设置文件：
 
@@ -146,48 +146,53 @@ brew install terminal-notifier
           }
         ]
       }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "case \"$TERM_PROGRAM\" in iTerm.app) APP=com.googlecode.iterm2 ;; Apple_Terminal) APP=com.apple.Terminal ;; WarpTerminal) APP=dev.warp.Warp-Stable ;; ghostty) APP=com.mitchellh.ghostty ;; vscode) APP=com.microsoft.VSCode ;; *) APP=com.apple.Terminal ;; esac; afplay /绝对路径/to/streaming-complete-notifier/src/javascript/audio/streaming-complete.mp3 & terminal-notifier -title 'Claude Code' -message '需要你的注意' -activate \"$APP\" 2>/dev/null || true"
-          }
-        ]
-      }
     ]
   }
 }
 ```
 
-要点说明：
+改完之后**重启 Claude Code**，hooks 才会重新加载。
+
+> **为什么只用 Stop hook？** Claude Code 还有一个 `Notification` 事件，但它在空闲等待时也会触发，容易导致"明明没任务却突然响一声"。Stop hook 只在 agentic 任务（工具调用、写文件、运行命令）完成后触发，不会误响。纯文字闲聊不会触发 Stop，这是设计上的妥协，避免每说一句话都响一下。
+
+### Codex CLI 配置
+
+打开 Codex CLI 的配置文件 `~/.codex/config.toml`，添加以下内容：
+
+```toml
+# 1. 开启 hooks 功能
+[features]
+codex_hooks = true
+
+# 2. 添加 Stop hook
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = """case "$TERM_PROGRAM" in iTerm.app) APP=com.googlecode.iterm2 ;; Apple_Terminal) APP=com.apple.Terminal ;; WarpTerminal) APP=dev.warp.Warp-Stable ;; ghostty) APP=com.mitchellh.ghostty ;; vscode) APP=com.microsoft.VSCode ;; *) APP=com.apple.Terminal ;; esac; afplay /绝对路径/to/streaming-complete-notifier/src/javascript/audio/streaming-complete.mp3 & terminal-notifier -title 'Codex CLI' -message '完成了' -activate "$APP" 2>/dev/null || true"""
+timeout = 30
+```
+
+如果你的 `config.toml` 里已经有 `[features]` 块，把 `codex_hooks = true` 加到那个块里即可，不要重复声明。
+
+改完之后**重启 Codex CLI**，hooks 才会重新加载。
+
+### 通用说明
 
 - 把 `/绝对路径/to/...` 替换成你本地 clone 下来的路径，或换成任意你喜欢的 mp3。
 - `case` 那段会读 `$TERM_PROGRAM` 自动判断你用的哪个终端 App，然后把 bundle ID 喂给 `terminal-notifier -activate`，**这样点击通知就会跳回那个 App**。
 - 已内置识别：iTerm2 / Terminal.app / Warp / Ghostty / VSCode（含集成终端）。其他终端会 fallback 到 Terminal.app，按需自己加分支即可。
 
-改完之后**重启 Claude Code**，hooks 才会重新加载。
-
-### 两个 hook 的区别
-
-| Hook             | 触发时机                                                             | 适合场景                     |
-| ---------------- | -------------------------------------------------------------------- | ---------------------------- |
-| **Stop**         | Claude 跑完一轮 agentic 任务（涉及工具调用、写文件、运行命令）后触发 | 日常编码、跑测试、批量改文件 |
-| **Notification** | Claude 主动需要你介入（等待批准、长任务完成）                        | 留意权限弹窗、长流程节点     |
-
-> 纯文字闲聊不会触发 Stop —— 这是设计上的妥协，避免每说一句话都响一下，反而比没提示更烦。
-
 ### 排查 checklist
 
-- **完全没响？** 先确认你启动 Claude Code 时加载的是哪个 settings 文件（注意 `--settings` 标志），hooks 必须在那个文件里。
+- **完全没响？** 先确认加载的是哪个配置文件。Claude Code 注意 `--settings` 标志；Codex CLI 检查 `~/.codex/config.toml` 里 `codex_hooks = true` 是否已开启。
 - **响了但点击没反应？** 检查系统设置里 terminal-notifier 的通知是不是允许的；以及 `$TERM_PROGRAM` 在你的终端里是什么值（命令行跑 `echo $TERM_PROGRAM` 看一眼，对照 case 分支）。
-- **改完没生效？** 必须重启 Claude Code 进程，运行中的会话不会热加载 hooks。
+- **改完没生效？** 必须重启对应的 CLI 进程，运行中的会话不会热加载 hooks。
 - **想确认 hook 是不是真触发了？** 在 command 前加一行日志：
   ```bash
-  echo "$(date +%T) fired" >> /tmp/claude-hook.log;
+  echo "$(date +%T) fired" >> /tmp/hook.log;
   ```
-  随便聊几轮再 `cat /tmp/claude-hook.log` 看有没有写入。
+  随便聊几轮再 `cat /tmp/hook.log` 看有没有写入。
 
 ---
 

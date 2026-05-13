@@ -131,16 +131,17 @@ const LONG_RUNNING_TIMEOUT_MS = 45 * 60 * 1000; // 45 分钟
 const STATE_EXPIRY_MS = 60 * 60 * 1000; // 1 小时
 const STATE_SAVE_INTERVAL_MS = 30000; // 30 秒
 
-// ChatGPT 静默检测：lat/r 完成后等待这段时间。
-// 设计动机：画图任务的"开始信号"在 lat/r 后 9-12 秒才出现于 WebSocket（pageHook 劫持后转发为
-// chatgpt_image_gen_started 事件）。15 秒防抖能稳定捕获该信号，避免画图被误判为纯文字。
-// 期间任何新 lat/r / file_download 都重置计时器；收到 image_gen_started 则取消防抖进入画图等待模式。
-const CHATGPT_DEBOUNCE_MS = 15000;
-const CHATGPT_MAX_WAIT_MS = 90000; // 90s 兜底，防止永远等下去
+// ChatGPT 的 lat/r 通常早于画图开始信号 1-2 秒出现。
+// 因此 lat/r 后只保留一个短暂的"工具类型判别窗口"：若窗口内没有 image_gen_started，
+// 就按普通文字回答完成处理；若进入画图状态，则等待真正的图片完成信号。
+const CHATGPT_TOOL_DISAMBIGUATION_MS = 3500;
 // 画图等待兜底：pageHook 报告"画图开始"后，最多等这么久就强制触发通知（应对画图失败/超时）
 const CHATGPT_IMAGE_WAIT_MS = 5 * 60 * 1000;
 // /backend-api/files/download/file_xxx 是 ChatGPT 文生图后下载图片的端点（响应是 JSON，含签名 URL）
 const CHATGPT_FILE_DOWNLOAD_PATTERN = /^\/backend-api\/files\/download\/file_/;
+const CHATGPT_DIAGNOSTIC_DEFAULTS = { chatgptDiagnosticModeEnabled: false };
+const CHATGPT_DIAGNOSTIC_LOG_KEY = 'chatgptDiagnosticLogs';
+const CHATGPT_DIAGNOSTIC_MAX_LOGS = 1000;
 
 // 统一状态存储
 const requestState = new Map();      // requestId -> { platformId, tabId, isStream, startTime }
@@ -148,9 +149,11 @@ const lastNotifyAt = new Map();      // `${platformId}:${tabId}` -> timestamp
 const lastStartAt = new Map();       // `${platformId}:${tabId}` -> timestamp
 const longRunningTimeouts = new Map(); // `${platformId}:${tabId}` -> { requestId, timeoutId, startTime }
 const latestRequestPerTab = new Map(); // `${platformId}:${tabId}` -> requestId
-const chatgptPendingNotify = new Map(); // tabId -> { timeoutId, hasImage, startTime }
+const chatgptPendingNotify = new Map(); // tabId -> { timeoutId }；lat/r 后等待短窗口确认是否为画图任务
 const chatgptExpectingImage = new Map(); // tabId -> { timeoutId, startTime }；pageHook 报告"画图中"，lat/r 期间跳过通知
 const latestSnippetPerTab = new Map(); // tabId -> { prompt, snippet }
+const chatgptDiagnosticLogs = [];
+let diagnosticSaveTimeoutId = null;
 
 // 通知状态
 const activeNotifications = new Map();
@@ -168,6 +171,56 @@ function clampVolume(value) {
   const numeric = typeof value === 'number' ? value : parseFloat(value);
   if (Number.isNaN(numeric)) return DEFAULT_VOLUME;
   return Math.min(Math.max(numeric, 0), MAX_VOLUME);
+}
+
+function trimChatgptDiagnosticLogs() {
+  if (chatgptDiagnosticLogs.length <= CHATGPT_DIAGNOSTIC_MAX_LOGS) return;
+  chatgptDiagnosticLogs.splice(0, chatgptDiagnosticLogs.length - CHATGPT_DIAGNOSTIC_MAX_LOGS);
+}
+
+function scheduleDiagnosticSave() {
+  if (diagnosticSaveTimeoutId) return;
+  diagnosticSaveTimeoutId = setTimeout(() => {
+    diagnosticSaveTimeoutId = null;
+    saveDiagnosticLogs();
+  }, 1000);
+}
+
+async function saveDiagnosticLogs() {
+  try {
+    trimChatgptDiagnosticLogs();
+    await chrome.storage.local.set({
+      [CHATGPT_DIAGNOSTIC_LOG_KEY]: chatgptDiagnosticLogs
+    });
+  } catch (e) {
+    console.error('保存诊断日志失败:', e);
+  }
+}
+
+async function loadDiagnosticLogs() {
+  try {
+    const result = await chrome.storage.local.get([CHATGPT_DIAGNOSTIC_LOG_KEY]);
+    const stored = result[CHATGPT_DIAGNOSTIC_LOG_KEY];
+    chatgptDiagnosticLogs.length = 0;
+    if (Array.isArray(stored)) {
+      chatgptDiagnosticLogs.push(...stored);
+      trimChatgptDiagnosticLogs();
+    }
+  } catch (e) {
+    console.error('加载诊断日志失败:', e);
+  }
+}
+
+function appendChatgptDiagnosticLog(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  chatgptDiagnosticLogs.push(payload);
+  trimChatgptDiagnosticLogs();
+  scheduleDiagnosticSave();
+}
+
+function clearChatgptDiagnosticLogs() {
+  chatgptDiagnosticLogs.length = 0;
+  scheduleDiagnosticSave();
 }
 
 function buildUrlFilters() {
@@ -421,6 +474,7 @@ async function loadPersistentState() {
 
 // 定期保存状态
 setInterval(savePersistentState, STATE_SAVE_INTERVAL_MS);
+setInterval(saveDiagnosticLogs, STATE_SAVE_INTERVAL_MS);
 
 // ===========================================
 // 第六部分：Offscreen 文档管理
@@ -661,55 +715,120 @@ chrome.notifications.onClicked.addListener((notificationId) => {
 });
 
 // ===========================================
-// 第八点五部分：ChatGPT 静默检测（处理文生图等工具调用场景）
+// 第八点五部分：ChatGPT 任务类型判别（处理文生图等工具调用场景）
 // ===========================================
 
-// ChatGPT 在文生图时 lat/r 会在文字段结束就发出（count_tokens=0），但图片可能还要 30-60s 才生成完。
-// 此外混合场景（文字+画图、画图+文字）的 lat/r 也可能在 turn 中间发出。
-// 解决方案：把"lat/r 触发即通知"改为"lat/r 之后等待若干静默时间，期间任何新事件都重置计时器"。
-// 监听的事件：
-//   - lat/r：每次完成都重置计时器
-//   - files/download/file_*：仅在已有 pending 状态时计入（避免误把"用户单独下载附件"当成回答完成）
+// ChatGPT 文生图时 lat/r 会先于 WebSocket 画图开始信号出现。真实样本中这个间隔约 1.0-1.6 秒，
+// 所以这里不再做 15 秒静默防抖，只保留一个短窗口来判别本轮是不是画图任务。
+// 普通文字：窗口结束仍未进入画图状态 -> 触发通知。
+// 画图任务：收到 image_gen_started -> 取消文字通知，等待 image_asset_pointer / DOM / file_download 等强完成信号。
+
+function emitChatgptDiagnosticEvent(tabId, type, data = {}) {
+  chrome.storage.sync.get(CHATGPT_DIAGNOSTIC_DEFAULTS, (settings) => {
+    if (!settings.chatgptDiagnosticModeEnabled) return;
+
+    const payload = {
+      time: new Date().toISOString(),
+      type,
+      ...data
+    };
+    appendChatgptDiagnosticLog({ source: 'background', ...payload });
+    console.log('[ChatGPT-Diag][BG]', payload);
+
+    if (typeof tabId !== 'number' || tabId < 0) return;
+    chrome.tabs.sendMessage(tabId, {
+      action: 'chatgptDiagnosticEvent',
+      payload
+    }).catch(() => {
+      // 页面尚未注入 content script 时忽略。
+    });
+  });
+}
+
+function summarizeStreamEventForDiag(eventType, eventData = {}) {
+  const summary = { event_type: eventType };
+  if (eventData.source) summary.source = eventData.source;
+  if (eventData.signal) summary.signal = eventData.signal;
+  if (eventData.model) summary.model = eventData.model;
+  if (eventData.durationSec) summary.duration_sec = eventData.durationSec;
+  if (eventData.messageId) summary.message_id = eventData.messageId;
+  if (eventData.conversationId) summary.conversation_id = eventData.conversationId;
+  if (typeof eventData.prompt === 'string') summary.prompt_length = eventData.prompt.length;
+  if (typeof eventData.snippet === 'string') summary.snippet_length = eventData.snippet.length;
+  if (typeof eventData.durationMs === 'number') summary.duration_ms = eventData.durationMs;
+  return summary;
+}
+
+function clearChatgptPendingNotify(tabId, reason) {
+  const pending = chatgptPendingNotify.get(tabId);
+  if (!pending) return;
+  clearTimeout(pending.timeoutId);
+  chatgptPendingNotify.delete(tabId);
+  emitChatgptDiagnosticEvent(tabId, 'pending_notify_cleared', {
+    tab_id: tabId,
+    reason
+  });
+}
 
 function scheduleChatgptNotify(tabId, eventType) {
   if (typeof tabId !== 'number' || tabId < 0) return;
 
-  console.log('[BG-Diag][scheduleChatgptNotify]', 'tab=' + tabId, 'eventType=' + eventType, 'expectingImage=' + chatgptExpectingImage.has(tabId), 'pending=' + chatgptPendingNotify.has(tabId));
+  emitChatgptDiagnosticEvent(tabId, 'notify_schedule_attempt', {
+    tab_id: tabId,
+    event_type: eventType,
+    expecting_image: chatgptExpectingImage.has(tabId),
+    pending: chatgptPendingNotify.has(tabId)
+  });
 
-  // 画图模式下：lat/r 完成不立即通知，等待真正的 file_download 才触发
+  // 画图模式下：lat/r 完成不通知，等待真正的图片完成信号。
   if (eventType === 'lat_r' && chatgptExpectingImage.has(tabId)) {
+    emitChatgptDiagnosticEvent(tabId, 'notify_schedule_skipped', {
+      tab_id: tabId,
+      reason: 'expecting_image',
+      event_type: eventType
+    });
     return;
   }
 
   const existing = chatgptPendingNotify.get(tabId);
-  const now = Date.now();
-  const startTime = existing?.startTime || now;
-  const hasImage = (existing?.hasImage) || (eventType === 'image_download');
-
-  // 兜底：超过最大等待时间立即触发
-  if (now - startTime > CHATGPT_MAX_WAIT_MS) {
-    if (existing) clearTimeout(existing.timeoutId);
-    chatgptPendingNotify.delete(tabId);
-    fireChatgptNotify(tabId, hasImage);
-    return;
-  }
-
   if (existing) clearTimeout(existing.timeoutId);
 
   const timeoutId = setTimeout(() => {
-    const state = chatgptPendingNotify.get(tabId);
     chatgptPendingNotify.delete(tabId);
-    fireChatgptNotify(tabId, state?.hasImage || false);
-  }, CHATGPT_DEBOUNCE_MS);
+    if (chatgptExpectingImage.has(tabId)) {
+      emitChatgptDiagnosticEvent(tabId, 'notify_schedule_skipped', {
+        tab_id: tabId,
+        reason: 'image_started_during_grace',
+        event_type: eventType
+      });
+      return;
+    }
+    fireChatgptNotify(tabId, false);
+  }, CHATGPT_TOOL_DISAMBIGUATION_MS);
 
-  chatgptPendingNotify.set(tabId, { timeoutId, hasImage, startTime });
+  chatgptPendingNotify.set(tabId, { timeoutId });
+  emitChatgptDiagnosticEvent(tabId, 'notify_scheduled', {
+    tab_id: tabId,
+    event_type: eventType,
+    delay_ms: CHATGPT_TOOL_DISAMBIGUATION_MS,
+    purpose: 'tool_disambiguation'
+  });
 }
 
 function fireChatgptNotify(tabId, hasImage) {
-  console.log('[BG-Diag][fireChatgptNotify] 触发通知', 'tab=' + tabId, 'hasImage=' + hasImage);
+  emitChatgptDiagnosticEvent(tabId, 'notify_should_fire', {
+    tab_id: tabId,
+    has_image: hasImage
+  });
   const platform = PLATFORMS.find(p => p.id === 'chatgpt');
   if (!platform) return;
-  if (isThrottled(platform.id, tabId, platform.throttleMs)) return;
+  if (isThrottled(platform.id, tabId, platform.throttleMs)) {
+    emitChatgptDiagnosticEvent(tabId, 'notify_skipped', {
+      tab_id: tabId,
+      reason: 'throttled'
+    });
+    return;
+  }
 
   let dynamicTitle;
   let dynamicMessage;
@@ -734,15 +853,30 @@ function fireChatgptNotify(tabId, hasImage) {
     dynamicMessage,
     iconUrl: 'chatgpt.png'
   });
+  emitChatgptDiagnosticEvent(tabId, 'notify_fired', {
+    tab_id: tabId,
+    has_image: hasImage,
+    used_prompt_title: !!snippetData?.prompt
+  });
 }
 
 // 画图失败/中断专用通知：标题加 ⚠️，消息说明被中断的原因（signal 名）。
 // 与 fireChatgptNotify 共用平台节流（4s），避免与同一 turn 的其他通知重复。
 function fireChatgptFailedNotify(tabId, signal) {
-  console.log('[BG-Diag][fireChatgptFailedNotify] 触发失败通知', 'tab=' + tabId, 'signal=' + (signal || ''));
+  emitChatgptDiagnosticEvent(tabId, 'notify_failed_should_fire', {
+    tab_id: tabId,
+    signal: signal || ''
+  });
   const platform = PLATFORMS.find(p => p.id === 'chatgpt');
   if (!platform) return;
-  if (isThrottled(platform.id, tabId, platform.throttleMs)) return;
+  if (isThrottled(platform.id, tabId, platform.throttleMs)) {
+    emitChatgptDiagnosticEvent(tabId, 'notify_failed_skipped', {
+      tab_id: tabId,
+      reason: 'throttled',
+      signal: signal || ''
+    });
+    return;
+  }
 
   // 把 signal 名翻译成更友好的描述
   const reasonMap = {
@@ -768,6 +902,11 @@ function fireChatgptFailedNotify(tabId, signal) {
     dynamicMessage,
     iconUrl: 'chatgpt.png'
   });
+  emitChatgptDiagnosticEvent(tabId, 'notify_failed_fired', {
+    tab_id: tabId,
+    signal: signal || '',
+    used_prompt_title: !!snippetData?.prompt
+  });
 }
 
 function isChatgptFileDownload(details) {
@@ -782,19 +921,15 @@ function isChatgptFileDownload(details) {
     && CHATGPT_FILE_DOWNLOAD_PATTERN.test(url.pathname);
 }
 
-// pageHook 报告 SSE 流中检测到画图工具调用时调用：
-// 把 tab 标记为"画图中"，让 lat/r 完成时跳过通知，等真正的 file_download 才触发。
+// pageHook 报告检测到画图工具调用时调用：
+// 把 tab 标记为"画图中"，让 lat/r 完成时跳过通知，等真正的图片完成信号才触发。
 // 5 分钟兜底超时：画图失败/超时也能保证最终发出通知。
 function setChatgptExpectingImage(tabId) {
   if (typeof tabId !== 'number' || tabId < 0) return;
 
-  // 如果 image-gen 信号晚于 lat/r 到达（lat/r 已启动 1.5s 防抖），
-  // 这里取消 pending 通知，避免防抖到期还误发"开始画图"通知。
-  const pending = chatgptPendingNotify.get(tabId);
-  if (pending) {
-    clearTimeout(pending.timeoutId);
-    chatgptPendingNotify.delete(tabId);
-  }
+  // 如果 image-gen 信号晚于 lat/r 到达（lat/r 已启动短判别窗口），
+  // 这里取消 pending 通知，避免窗口到期误发文字完成通知。
+  clearChatgptPendingNotify(tabId, 'image_gen_started');
 
   const existing = chatgptExpectingImage.get(tabId);
   if (existing) clearTimeout(existing.timeoutId);
@@ -806,6 +941,10 @@ function setChatgptExpectingImage(tabId) {
   }, CHATGPT_IMAGE_WAIT_MS);
 
   chatgptExpectingImage.set(tabId, { timeoutId, startTime: Date.now() });
+  emitChatgptDiagnosticEvent(tabId, 'expecting_image_set', {
+    tab_id: tabId,
+    timeout_ms: CHATGPT_IMAGE_WAIT_MS
+  });
 }
 
 function clearChatgptExpectingImage(tabId) {
@@ -813,6 +952,9 @@ function clearChatgptExpectingImage(tabId) {
   if (!existing) return;
   clearTimeout(existing.timeoutId);
   chatgptExpectingImage.delete(tabId);
+  emitChatgptDiagnosticEvent(tabId, 'expecting_image_cleared', {
+    tab_id: tabId
+  });
 }
 
 // ===========================================
@@ -843,10 +985,20 @@ function diagLogChatgptRequest(stage, details) {
   try {
     const u = new URL(details.url);
     if (u.hostname !== 'chatgpt.com') return;
-    // 过滤掉静态资源/统计/CDN，只看 backend-api
+    // 过滤掉静态资源/统计/CDN，只看对采样有价值的 backend-api。
     if (!u.pathname.startsWith('/backend-api/')) return;
-    const status = details.statusCode !== undefined ? ' status=' + details.statusCode : '';
-    console.log('[BG-Diag][' + stage + ']', details.method || 'GET', u.pathname, 'tab=' + details.tabId, 'reqId=' + details.requestId + status);
+    const isKeyPath = u.pathname === '/backend-api/lat/r'
+      || u.pathname === '/backend-api/f/conversation'
+      || CHATGPT_FILE_DOWNLOAD_PATTERN.test(u.pathname);
+    if (!isKeyPath) return;
+
+    emitChatgptDiagnosticEvent(details.tabId, 'network_' + stage, {
+      tab_id: details.tabId,
+      method: details.method || 'GET',
+      request_path: u.pathname,
+      request_id: details.requestId,
+      status: details.statusCode
+    });
   } catch { /* ignore */ }
 }
 
@@ -934,8 +1086,8 @@ chrome.webRequest.onCompleted.addListener((details) => {
       const isValidRequest = platform.detection.type === 'request-complete';
 
       if (isLatest && (isValidStream || isValidRequest)) {
-        // ChatGPT 走静默检测：lat/r 不立即通知，重置防抖计时器，等真正"安静"再触发。
-        // 这样能正确处理文生图（lat/r 早于图片完成）、文字+画图混合等场景。
+        // ChatGPT 走短判别窗口：lat/r 后等 WebSocket 画图开始信号，避免把画图误判成文字完成。
+        // 进入画图状态后，通知只由图片完成强信号触发。
         if (platform.id === 'chatgpt') {
           scheduleChatgptNotify(details.tabId, 'lat_r');
         } else if (!isThrottled(platform.id, details.tabId, platform.throttleMs)) {
@@ -983,7 +1135,7 @@ chrome.webRequest.onCompleted.addListener((details) => {
   // ChatGPT 文生图完成的兜底信号：files/download/file_*
   // 主路径：WebSocket image_gen_finished 信号触发通知（更早、更可靠）。
   // 兜底：万一 WebSocket 信号丢失，file_download 出现时如果 tab 仍在画图等待状态，
-  // 直接触发"画图完成"通知（不走 15s 防抖，否则要等太久）。
+  // 直接触发"画图完成"通知（不走文字任务判别窗口，否则要等太久）。
   // fireChatgptNotify 内部已有 4s 节流，能防多图情况下的重复通知。
   if (isChatgptFileDownload(details)) {
     if (chatgptExpectingImage.has(details.tabId)) {
@@ -1024,6 +1176,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 注意：playSound 消息由 offscreen 文档处理，这里不要处理它
   // 否则会导致消息端口提前关闭
 
+  if (message.action === 'getChatgptDiagnosticLogs') {
+    sendResponse({
+      success: true,
+      count: chatgptDiagnosticLogs.length,
+      logs: chatgptDiagnosticLogs
+    });
+    return true;
+  }
+
+  if (message.action === 'clearChatgptDiagnosticLogs') {
+    clearChatgptDiagnosticLogs();
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (message.action === 'testSound') {
     playTestSound(message.soundFile, message.soundType, message.volume);
     sendResponse({ success: true });
@@ -1048,6 +1215,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleStreamEvent(message, sender) {
   const { eventType, eventData, url } = message;
   const tabId = sender.tab?.id;
+
+  if (eventType === 'chatgpt_diagnostic_event') {
+    appendChatgptDiagnosticLog({
+      source: 'page',
+      tab_id: tabId,
+      ...(eventData || {})
+    });
+    return;
+  }
+
+  emitChatgptDiagnosticEvent(tabId, 'stream_event_received', {
+    tab_id: tabId,
+    ...summarizeStreamEventForDiag(eventType, eventData)
+  });
 
   // 根据 URL 确定平台
   let platform = null;
@@ -1078,29 +1259,24 @@ async function handleStreamEvent(message, sender) {
   // 避免上一轮画图任务的状态影响这一轮（比如用户没等画完就发新消息）
   if (eventType === 'chatgpt_turn_started') {
     clearChatgptExpectingImage(tabId);
+    clearChatgptPendingNotify(tabId, 'turn_started');
     return;
   }
 
-  // pageHook 在 SSE 流中检测到画图工具调用：标记 tab 为"画图中"
-  // 此后 lat/r 完成时会跳过通知，等真正的 file_download 才触发
+  // pageHook 检测到画图工具调用：标记 tab 为"画图中"
+  // 此后 lat/r 完成时会跳过通知，等真正的图片完成信号才触发
   if (eventType === 'chatgpt_image_gen_started') {
-    console.log('[BG-Diag][image_gen_started] 收到画图信号', 'tab=' + tabId, 'signal=' + (eventData?.signal || ''));
     setChatgptExpectingImage(tabId);
     return;
   }
 
   // pageHook 从 WebSocket 检测到画图最终完成（image_asset_pointer in final / ghostrider:final /
-  // conversation_async_status:4）。这是比 file_download 更早、更可靠的完成信号。
-  // 立即触发通知（不走 15s 防抖），并清掉 expecting 状态。
+  // conversation_async_status:4 不能单独作为完成信号；pageHook 只会在看到图片资产等强信号时上报。
+  // 立即触发通知（不走文字任务判别窗口），并清掉 expecting 状态。
   if (eventType === 'chatgpt_image_gen_finished') {
-    console.log('[BG-Diag][image_gen_finished] 收到画图完成信号', 'tab=' + tabId, 'signal=' + (eventData?.signal || ''), 'source=' + (eventData?.source || ''));
     clearChatgptExpectingImage(tabId);
     // 也清掉可能的 pending（理论上 expecting 模式下 lat/r 应已被跳过，pending 不会有，这里是保险）
-    const pending = chatgptPendingNotify.get(tabId);
-    if (pending) {
-      clearTimeout(pending.timeoutId);
-      chatgptPendingNotify.delete(tabId);
-    }
+    clearChatgptPendingNotify(tabId, 'image_gen_finished');
     fireChatgptNotify(tabId, true);
     return;
   }
@@ -1108,13 +1284,8 @@ async function handleStreamEvent(message, sender) {
   // pageHook 从 WebSocket 检测到画图失败/中断（response.failed / response.incomplete / response.cancelled）。
   // 清掉 expecting 状态避免 5 分钟兜底再发一次错误的"完成"通知，并发出"画图失败"通知。
   if (eventType === 'chatgpt_image_gen_failed') {
-    console.log('[BG-Diag][image_gen_failed] 收到画图失败信号', 'tab=' + tabId, 'signal=' + (eventData?.signal || ''), 'source=' + (eventData?.source || ''));
     clearChatgptExpectingImage(tabId);
-    const pending = chatgptPendingNotify.get(tabId);
-    if (pending) {
-      clearTimeout(pending.timeoutId);
-      chatgptPendingNotify.delete(tabId);
-    }
+    clearChatgptPendingNotify(tabId, 'image_gen_failed');
     fireChatgptFailedNotify(tabId, eventData?.signal);
     return;
   }
@@ -1216,6 +1387,7 @@ function isThrottledByKey(key, ms) {
 // ===========================================
 
 async function initialize() {
+  await loadDiagnosticLogs();
   await loadPersistentState();
   await ensureOffscreenDocument();
   keepServiceWorkerAlive();
