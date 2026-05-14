@@ -157,6 +157,8 @@ brew install terminal-notifier
 
 ### Codex CLI 配置
 
+Codex 的 `Stop` hook 会在**每一轮模型回答结束**时触发，纯文字回答也会触发。这个行为正好适合"不用守着模型，答完就提醒"的场景。
+
 打开 Codex CLI 的配置文件 `~/.codex/config.toml`，添加以下内容：
 
 ```toml
@@ -174,6 +176,14 @@ timeout = 30
 ```
 
 如果你的 `config.toml` 里已经有 `[features]` 块，把 `codex_hooks = true` 加到那个块里即可，不要重复声明。
+
+如果你发现响了两次，或不是这条提示音也在响，检查 `config.toml` 里是否还有 Codex 自带的 `notify = [...]` 配置。那是另一套通知机制，可以先注释掉，只保留上面的 `Stop` hook。
+
+如果想调小音量，可以给 `afplay` 加 `-v`：
+
+```toml
+command = """case "$TERM_PROGRAM" in iTerm.app) APP=com.googlecode.iterm2 ;; Apple_Terminal) APP=com.apple.Terminal ;; WarpTerminal) APP=dev.warp.Warp-Stable ;; ghostty) APP=com.mitchellh.ghostty ;; vscode) APP=com.microsoft.VSCode ;; *) APP=com.apple.Terminal ;; esac; afplay -v 0.3 /绝对路径/to/streaming-complete-notifier/src/javascript/audio/streaming-complete.mp3 & terminal-notifier -title 'Codex CLI' -message '完成了' -activate "$APP" 2>/dev/null || true"""
+```
 
 改完之后**重启 Codex CLI**，hooks 才会重新加载。
 
