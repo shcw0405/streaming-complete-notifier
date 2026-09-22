@@ -1,7 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "AI 回答完成提醒器 (Gemini & ChatGPT & Grok & AI Studio)",
-  "version": "1.1.0",
+  "name": "回响 Relay · AI 完成提醒",
+  "version": "1.4.0",
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "minimum_chrome_version": "120",
+  "externally_connectable": {
+    "matches": ["http://127.0.0.1/*"]
+  },
   "description": "当 Gemini、ChatGPT、Grok 或 AI Studio 完成回答生成时，发送桌面通知和声音提醒。支持 ChatGPT 思考完成检测。",
   "permissions": [
     "notifications",
@@ -12,6 +17,7 @@
     "alarms"
   ],
   "host_permissions": [
+    "http://127.0.0.1/*",
     "https://gemini.google.com/*",
     "https://chatgpt.com/*",
     "https://aistudio.google.com/*",
@@ -30,7 +36,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AI 回答完成提醒器"
+    "default_title": "回响 Relay · AI 完成提醒"
   },
   "icons": {
     "16": "icon16.png",

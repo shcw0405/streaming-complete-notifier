@@ -1,0 +1,24 @@
+{
+  "name": "relay-notifier",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "desktop.mjs",
+  "description": "回响：AI 编程工具的本地通知配置助手",
+  "scripts": {
+    "start": "node server.mjs",
+    "desktop": "electron .",
+    "package": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "smol-toml": "^1.4.2"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.2.0"
+  }
+}

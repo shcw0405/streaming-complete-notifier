@@ -1,5 +1,7 @@
 // 简化的 Popup 菜单脚本
 document.addEventListener('DOMContentLoaded', async () => {
+  chrome.runtime.sendMessage({ action: 'relaySyncDesktop' }).catch(() => {});
+  document.getElementById('openOptions').addEventListener('click', () => chrome.runtime.openOptionsPage());
   const geminiEnabled = document.getElementById('geminiEnabled');
   const chatgptEnabled = document.getElementById('chatgptEnabled');
   const chatgptReasoningEndEnabled = document.getElementById('chatgptReasoningEndEnabled');
@@ -211,7 +213,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       settings.soundVolume = clampVolume(volumeSlider.value);
 
-      await chrome.storage.sync.set(settings);
+      // 仅写入弹窗中实际展示的字段，不覆盖管理页里的高级设置。
+      const patch = Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'soundVolume' || document.getElementById(key)));
+      await chrome.storage.sync.set(patch);
     } catch (error) {
       console.error('保存设置失败:', error);
     }

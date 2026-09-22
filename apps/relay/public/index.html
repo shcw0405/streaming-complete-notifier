@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="relay-token" content="__TOKEN__"><title>回响 Relay · 统一提醒管理</title><link rel="stylesheet" href="/style.css"><script src="/browser.js" defer></script><script src="/app.js" defer></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/"><img src="/icon.png" width="44" height="44" alt="回响"><span>回响 <small>RELAY</small></span></a>
+  <div class="workspace"><span class="online"></span>个人工作空间<span class="local">本机</span></div>
+  <nav aria-label="主导航"><a href="#tools" class="selected"><span>▧</span> 工具接入 <b>03</b></a><a href="#preferences"><span>◉</span> 提醒偏好</a><a href="#guide"><span>↗</span> 使用指南</a></nav>
+  <div class="sidebar-bottom"><div class="mini-wave">▂ ▄ ▆ ▃ ▇ ▄ ▂</div><p>把等待的时间，<br>还给你自己。</p><small>回响 · 本地预览版 0.2</small></div>
+</aside>
+<main>
+  <header class="topbar"><span>工作空间 <i>/</i> 工具接入</span><span class="privacy"><span class="online"></span>配置只保存在你的电脑</span></header>
+  <section class="intro" id="tools"><div class="eyebrow">让每一次完成，都有回响</div><h1>放心交给 AI。<br><span>完成了，我们叫你。</span></h1><p>连接常用的编程工具，用熟悉的系统通知接住结果。<br>自动配置，随时恢复，从此少一次守候。</p><div class="hero-actions"><button class="primary" id="test-all">♫ 体验一声回响</button><button class="quiet" id="refresh">↻ 重新检测</button></div><div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="bell">◉</div><div class="sample-notice"><span class="notice-check">✓</span><div><strong>本轮已完成</strong><small>可以回来继续了。</small></div><span class="now">现在</span></div><span class="art-caption">你专注当下，回响关注完成。</span></div></section>
+  <section class="summary"><div><span class="metric" id="connected">—</span><span>已接入工具</span></div><div><span class="metric" id="detected">—</span><span>本机已发现</span></div><div><span class="metric">0</span><span>额外模型调用</span></div><p>已有配置会被保留<br><strong>每次修改都有预览和备份</strong></p></section>
+  <section id="browser-tools" class="preferences"><div class="section-heading"><div><h2>网页 AI · 浏览器扩展</h2><p id="browser-status">尚未连接扩展</p></div><button class="quiet" id="connect-browser">检查连接</button></div>
+    <p class="bridge-help" id="browser-help">桌面端管理 CLI，扩展负责网页；配对后统一管理，两边都可独立提醒。</p>
+    <p class="bridge-help">连接和断开操作请在浏览器扩展的「管理」页面完成，该页面会自动发现本机回响，无需输入地址或配对码。</p>
+    <form id="browser-form"><fieldset id="browser-fields" disabled>
+      <div class="browser-grid">
+        <label><input type="checkbox" name="chatgptEnabled"> ChatGPT</label><label><input type="checkbox" name="geminiEnabled"> Gemini</label><label><input type="checkbox" name="grokEnabled"> Grok</label><label><input type="checkbox" name="aistudioEnabled"> AI Studio</label>
+      </div>
+      <div class="setting-row"><div><strong>ChatGPT 思考结束提醒</strong><small>网页侧独立选项</small></div><label class="switch"><input type="checkbox" name="chatgptReasoningEndEnabled" aria-label="ChatGPT 思考结束提醒"><span></span></label></div>
+      <div class="setting-row"><div><strong>网页后台保活</strong><small>修改后请刷新目标 AI 页面；当前覆盖 ChatGPT、Gemini、Grok</small></div><label class="switch"><input type="checkbox" name="tabKeepAliveEnabled" aria-label="网页后台保活"><span></span></label></div>
+      <div class="form-footer"><span id="browser-save-status">开关直接保存到浏览器扩展</span><button class="primary" type="submit">保存网页设置</button></div>
+    </fieldset></form>
+    <div class="form-footer"><span id="shared-status">连接后可同步声音、音量和桌面通知</span><button class="quiet" id="sync-browser" disabled>同步本机提醒偏好到扩展</button></div>
+  </section>
+  <div class="section-heading"><div><h2>终端 AI · 你的编程搭档</h2><p>真实配置文件接入，预览、写入与恢复由本机后端完成。</p></div><span class="subtle">首批支持 · macOS</span></div>
+  <div id="tool-grid" class="tool-grid" aria-live="polite"><p>正在检查本机工具…</p></div>
+  <section id="preferences" class="preferences"><div class="section-heading"><div><h2>按你的节奏提醒</h2><p>所有接入工具共用，保存后立即用于下一次通知。</p></div><span class="save-status" id="save-status"></span></div>
+    <form id="prefs-form"><div class="setting-row"><div><strong>系统桌面通知</strong><small>完成消息进入系统通知中心</small></div><label class="switch"><input type="checkbox" name="desktop" aria-label="系统桌面通知"><span></span></label></div>
+    <div class="setting-row"><div><strong>完成提示音</strong><small>让熟悉的一声提醒你回来</small></div><label class="switch"><input type="checkbox" name="sound" aria-label="完成提示音"><span></span></label></div>
+    <div class="setting-row"><div><strong>提示音量</strong><small>为专注留一点余地</small></div><div class="volume"><input type="range" name="volume" min="0" max="150" step="5" aria-label="提示音量"><output id="volume-label">65%</output></div></div>
+    <div class="setting-row"><div><strong>显示项目名称</strong><small>只显示文件夹名称，不读取或展示对话内容</small></div><label class="switch"><input type="checkbox" name="project" aria-label="显示项目名称"><span></span></label></div>
+    <div class="setting-row"><div><strong>权限请求也提醒</strong><small>Claude Code / OpenCode 明确请求授权时通知</small></div><label class="switch"><input type="checkbox" name="attention" aria-label="权限请求也提醒"><span></span></label></div>
+    <div class="form-footer"><span>关闭配置界面，提醒仍然有效。</span><button class="primary" type="submit">保存偏好</button></div></form>
+  </section>
+  <section id="guide" class="guide"><h2>三步，让工作继续向前</h2><div class="steps"><article><b>01</b><h3>接入你的工具</h3><p>先看配置预览，再确认写入。我们会保留已有设置，并创建原始备份。</p></article><article><b>02</b><h3>重启，交给 AI</h3><p>重新打开已接入的 CLI，开始一轮任务。你可以切换到其他工作。</p></article><article><b>03</b><h3>收到回响，继续</h3><p>任务结束后留意声音与通知。运行一次真实任务，验证接入是否生效。</p></article></div><div class="system-note" id="system-note"></div></section>
+  <footer>回响 Relay <span>少一点等待，多一点自己的时间。</span><span>本地运行 · 无模型调用 · 不上传配置</span></footer>
+</main>
+<dialog id="preview-dialog"><div class="dialog-heading"><div class="eyebrow">每一次修改，都清清楚楚</div><button class="icon-button" id="close-dialog" aria-label="关闭">×</button></div><h2 id="preview-title">接入预览</h2><p id="preview-path" class="file-path"></p><p class="preview-label">以下仅展示回响添加的内容，原配置中的密钥不会显示。</p><pre id="preview-code"></pre><ul id="preview-notes"></ul><p class="backup-note" id="backup-note"></p><div class="dialog-actions"><button id="cancel-dialog" class="quiet">暂不修改</button><button id="apply" class="primary">确认接入</button></div></dialog>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body></html>

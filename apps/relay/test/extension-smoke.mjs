@@ -1,0 +1,47 @@
+// 使用独立浏览器配置验证管理页自动发现、显式授权与精简弹窗。
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { Manager } from '../core.mjs';
+import { createServer } from '../server.mjs';
+const { chromium } = createRequire(import.meta.url)(process.env.RELAY_PLAYWRIGHT || 'playwright');
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-options-test-'));
+let allow = false, context;
+const server = createServer(new Manager({ home, env: { PATH: '' } }), { approveConnection: async () => allow });
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const url = `http://127.0.0.1:${server.address().port}/`;
+try {
+  const extension = path.resolve('../../src/javascript');
+  context = await chromium.launchPersistentContext(path.join(home, 'profile'), { headless: true, ignoreDefaultArgs: ['--disable-extensions'], executablePath: process.env.RELAY_BROWSER, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`], viewport: { width: 1100, height: 900 } });
+  const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
+  const id = new URL(worker.url()).host;
+  const popup = await context.newPage(); await popup.goto(`chrome-extension://${id}/popup.html`); await popup.locator('body.loaded').waitFor();
+  assert.equal(await popup.locator('input[type=url], #relayPairCode, #relayManagerStatus, #tabKeepAliveEnabled').count(), 0);
+  assert.equal((await popup.evaluate(() => chrome.runtime.sendMessage({ action: 'relayConnect' }))).ok, false);
+  const options = await context.newPage(); await options.goto(`chrome-extension://${id}/options.html`);
+  await options.waitForFunction(() => document.querySelector('#connection-state').textContent.includes('未发现'), null, { timeout: 15000 });
+  await worker.evaluate(url => chrome.storage.local.set({ relayDesktop: { url, token: 'old' } }), url);
+  await options.locator('#detect').click(); await options.locator('#connect').waitFor({ state: 'visible' });
+  assert.equal(await options.locator('#connection-address').innerText(), url);
+  await options.locator('#connect').click(); await options.waitForFunction(() => document.querySelector('#status').textContent.includes('取消'));
+  allow = true; await options.locator('#connect').click(); await options.locator('#open-manager').waitFor({ state: 'visible' });
+  await options.locator('[data-setting="tabKeepAliveEnabled"]').check();
+  await options.waitForFunction(() => document.querySelector('#status').textContent === '已保存。');
+  await popup.locator('#grokEnabled').uncheck();
+  await popup.waitForFunction(async () => (await chrome.storage.sync.get('grokEnabled')).grokEnabled === false);
+  assert.equal((await worker.evaluate(() => chrome.storage.sync.get('tabKeepAliveEnabled'))).tabKeepAliveEnabled, true);
+  const opened = context.waitForEvent('page'); await options.locator('#open-manager').click(); const page = await opened;
+  await page.waitForURL(url + '#extension=' + id);
+  await page.waitForFunction(() => document.querySelector('#browser-status')?.textContent.includes('扩展已连接'));
+  const intruder = await context.newPage(); await intruder.goto(url + '#extension=' + id);
+  await intruder.waitForFunction(() => document.querySelector('#browser-help')?.textContent.includes('尚未授权'));
+  await options.reload(); await options.locator('#disconnect').waitFor({ state: 'visible' });
+  fs.mkdirSync('.test-output', { recursive: true });
+  await options.screenshot({ path: '.test-output/options.png', fullPage: true });
+  await popup.setViewportSize({ width: 300, height: 420 }); await popup.screenshot({ path: '.test-output/popup.png', fullPage: true });
+  await options.locator('#disconnect').click(); await options.waitForFunction(() => document.querySelector('#status').textContent.includes('已断开'));
+  assert.equal((await worker.evaluate(() => chrome.storage.local.get('relayDesktop'))).relayDesktop, undefined);
+  console.log('扩展验收通过：未启动提示、自动发现、拒绝/确认授权、管理页打开工作台、重连/断开、弹窗精简且不覆盖高级设置。');
+} finally { if (context) await context.close(); server.close(); fs.rmSync(home, { recursive: true, force: true }); }
