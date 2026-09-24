@@ -4,7 +4,7 @@
 
 ## 安装包与桌面开发
 
-`npm ci && npm run package` 生成 `release/Relay-0.2.0-mac-arm64.zip` 与 `release/Relay-Browser-1.4.0.zip`。首次构建下载经校验的 Electron 和官方 Node 24.14.0，之后复用缓存。当前为本机 ad-hoc 签名，未 Apple 公证，未上架扩展商店。安装步骤见 [INSTALL.md](INSTALL.md)。
+`npm ci && npm run package` 生成 `release/Relay-0.3.0-mac-arm64.zip` 与 `release/Relay-Browser-1.4.0.zip`。首次构建下载经校验的 Electron 和官方 Node 24.14.0，之后复用缓存。当前为本机 ad-hoc 签名，未 Apple 公证，未上架扩展商店。安装步骤见 [INSTALL.md](INSTALL.md)。
 
 先构建后可 `npm run desktop` 开发桌面应用。`desktop.mjs` 管理单实例、菜单栏、窗口与服务生命周期；关闭窗口不退出，退出应用停止本地管理服务。CLI 通知脚本使用 `~/.relay-notifier/bin/node`，不依赖 Electron 是否运行或安装目录是否移动。
 
@@ -99,3 +99,13 @@ npm test
 核对日期：2026-09-06。接入逻辑在 core.mjs，通知运行时在 notify.mjs，本机 API 在 server.mjs，界面在 public/。
 
 连接后的公共设置支持双向同步：浏览器修改声音、音量或桌面通知会写入本机通知偏好，桌面界面每 5 秒刷新且保留未保存的编辑。首次连接保留双方设置，可主动同步本机偏好。离线期间两端独立工作，本机离线修改可在重连后手动同步；同时修改同一项时，以扩展确认的写入为准。两端音频实现不同，相同音量数值不保证相同响度。
+
+## SSH 远程任务提醒（0.3）
+
+桌面管理页的「SSH 提醒」提供 Codex + VS Code 响铃配置向导：本地声音设置 → SSH 终端测试 → 临时参数启动 Codex → 可选保存远端默认配置。每段内容均可复制，验证进度由用户勾选并存于当前界面，不代表软件自动检测成功。
+
+它复用现有 SSH 终端的 BEL 信号；声音由 VS Code 播放，不受回响音量控制，不发送 macOS 系统横幅。配置后可关闭回响，SSH 断开后不再提醒。不连接服务器、不收集密码或私钥、不自动改写远端文件；tmux / screen 请单独验证。
+
+原设计与实施计划没有远端验收完成记录，本次完成的是向导集成与界面验收，真实声音及远端 Codex 完成事件仍需按向导验证。
+
+配置依据（2026-09-24）：[Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[命令行覆盖参数](https://learn.chatgpt.com/docs/cli/reference)。VS Code 官网 [Terminal Appearance](https://code.visualstudio.com/docs/terminal/appearance) 仍列旧键 enableBell；本机 VS Code 配置 schema 已将该键标为弃用并提供 enableVisualBell，因此向导使用后者并说明旧版兼容方式。

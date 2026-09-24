@@ -49,13 +49,13 @@ fs.mkdirSync(path.join(stage, 'bin')); fs.copyFileSync(path.join(cache, 'node'),
 fs.copyFileSync(path.join(cache, 'NODE-LICENSE'), path.join(stage, 'bin/NODE-LICENSE'));
 fs.mkdirSync(path.join(stage, 'assets'));
 fs.copyFileSync(path.join(here, '../../src/javascript/audio/streaming-complete.mp3'), path.join(stage, 'assets/complete.mp3'));
-const [appDir] = await packager({ dir: stage, out: release, name: 'Relay', icon, executableName: 'Relay', appBundleId: 'app.relay.notifier', appVersion: '0.2.0', platform: 'darwin', arch: 'arm64', asar: false, overwrite: true, prune: false, electronVersion, electronZipDir: cache, extendInfo: { LSUIElement: true, CFBundleDisplayName: '回响 Relay', NSHumanReadableCopyright: '回响 Relay · 本地试用版' } });
+const [appDir] = await packager({ dir: stage, out: release, name: 'Relay', icon, executableName: 'Relay', appBundleId: 'app.relay.notifier', appVersion: '0.3.0', platform: 'darwin', arch: 'arm64', asar: false, overwrite: true, prune: false, electronVersion, electronZipDir: cache, extendInfo: { LSUIElement: true, CFBundleDisplayName: '回响 Relay', NSHumanReadableCopyright: '回响 Relay · 本地试用版' } });
 execFileSync('codesign', ['--force', '--deep', '--sign', '-', path.join(appDir, 'Relay.app')]);
-execFileSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', path.join(appDir, 'Relay.app'), path.join(release, 'Relay-0.2.0-mac-arm64.zip')]);
+execFileSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', path.join(appDir, 'Relay.app'), path.join(release, 'Relay-0.3.0-mac-arm64.zip')]);
 const extensionStage = path.join(stage, 'relay-browser');
 fs.cpSync(path.join(here, '../../src/javascript'), extensionStage, { recursive: true, filter: file => !path.basename(file).startsWith('.') });
 execFileSync('ditto', ['-c', '-k', '--norsrc', '--noextattr', '--keepParent', extensionStage, path.join(release, 'Relay-Browser-1.4.0.zip')]);
 fs.copyFileSync(path.join(here, 'INSTALL.md'), path.join(release, '安装与试用说明.md'));
-const hashes = ['Relay-0.2.0-mac-arm64.zip', 'Relay-Browser-1.4.0.zip'].map(name => `${crypto.createHash('sha256').update(fs.readFileSync(path.join(release, name))).digest('hex')}  ${name}`).join('\n');
+const hashes = ['Relay-0.3.0-mac-arm64.zip', 'Relay-Browser-1.4.0.zip'].map(name => `${crypto.createHash('sha256').update(fs.readFileSync(path.join(release, name))).digest('hex')}  ${name}`).join('\n');
 fs.writeFileSync(path.join(release, 'SHA256SUMS.txt'), hashes + '\n');
 console.log(`两个产品已打包到 ${release}\n构建暂存目录：${stage}`);

@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="relay-token" content="__TOKEN__"><title>回响 Relay · 统一提醒管理</title><link rel="stylesheet" href="/style.css"><script src="/browser.js" defer></script><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="relay-token" content="__TOKEN__"><title>回响 Relay · 统一提醒管理</title><link rel="stylesheet" href="/style.css"><script src="/browser.js" defer></script><script src="/app.js" defer></script><script src="/ssh.js" defer></script></head>
 <body>
 <aside class="sidebar">
   <a class="brand" href="/"><img src="/icon.png" width="44" height="44" alt="回响"><span>回响 <small>RELAY</small></span></a>
   <div class="workspace"><span class="online"></span>个人工作空间<span class="local">本机</span></div>
-  <nav aria-label="主导航"><a href="#tools" class="selected"><span>▧</span> 工具接入 <b>03</b></a><a href="#preferences"><span>◉</span> 提醒偏好</a><a href="#guide"><span>↗</span> 使用指南</a></nav>
-  <div class="sidebar-bottom"><div class="mini-wave">▂ ▄ ▆ ▃ ▇ ▄ ▂</div><p>把等待的时间，<br>还给你自己。</p><small>回响 · 本地预览版 0.2</small></div>
+  <nav aria-label="主导航"><a href="#tools" class="selected"><span>▧</span> 工具接入 <b>03</b></a><a href="#ssh-tools"><span>⇄</span> SSH 提醒</a><a href="#preferences"><span>◉</span> 提醒偏好</a><a href="#guide"><span>↗</span> 使用指南</a></nav>
+  <div class="sidebar-bottom"><div class="mini-wave">▂ ▄ ▆ ▃ ▇ ▄ ▂</div><p>把等待的时间，<br>还给你自己。</p><small>回响 · 本地预览版 0.3</small></div>
 </aside>
 <main>
   <header class="topbar"><span>工作空间 <i>/</i> 工具接入</span><span class="privacy"><span class="online"></span>配置只保存在你的电脑</span></header>
@@ -27,6 +27,44 @@
   </section>
   <div class="section-heading"><div><h2>终端 AI · 你的编程搭档</h2><p>真实配置文件接入，预览、写入与恢复由本机后端完成。</p></div><span class="subtle">首批支持 · macOS</span></div>
   <div id="tool-grid" class="tool-grid" aria-live="polite"><p>正在检查本机工具…</p></div>
+  <section id="ssh-tools" class="preferences ssh-guide" aria-labelledby="ssh-title">
+    <div class="section-heading"><div><h2 id="ssh-title">SSH 远程任务提醒</h2><p>服务器完成，本地终端响铃 · Codex + VS Code 配置向导</p></div><span class="tag">终端响铃模式</span></div>
+    <p class="bridge-help">沿用你平常的 SSH 会话。服务器发出响铃信号，本地 VS Code 播放内置提示音。配置完成后无需让回响保持打开；SSH 断开后不再提醒。</p>
+    <p class="system-note">此模式不使用回响的音量、提示音或系统通知。向导不会登录服务器或修改配置，下面的勾选是你的手动验证记录，仅保存在当前管理界面。</p>
+    <details open><summary>1 · 在本地 VS Code 开启终端响铃</summary>
+      <p>打开命令面板，选择「Preferences: Open User Settings (JSON)」，把下面两个设置合并到现有顶层对象中。保留其他设置；如果键已存在，只更新对应值。Remote SSH 窗口也应修改本地 User 设置。</p>
+      <pre id="ssh-local-code">{
+  "accessibility.signals.terminalBell": { "sound": "on" },
+  "terminal.integrated.enableVisualBell": true
+}</pre><button class="quiet" data-copy="ssh-local-code">复制本地设置</button>
+      <p>如果版本提示不认识 enableVisualBell，在设置中搜索 Terminal Bell / Visual Bell；旧版可能使用 terminal.integrated.enableBell。声音以实际听到为准。</p>
+      <p>在本地 VS Code 终端运行：</p><pre id="ssh-local-test">printf '\a'</pre><button class="quiet" data-copy="ssh-local-test">复制本地测试命令</button>
+      <label class="ssh-check"><input type="checkbox" data-ssh-check="local"> 我已在本地听到提示音</label>
+    </details>
+    <details><summary>2 · 在你已登录的 SSH 终端测试</summary>
+      <p>用平常的方式登录服务器，在同一个交互式终端执行。它会显示 SSH / 终端状态，并发送一次响铃。</p>
+      <pre id="ssh-remote-test">printf 'SSH=%s\n' "${SSH_CONNECTION:+yes}"
+tty
+printf '\a'</pre><button class="quiet" data-copy="ssh-remote-test">复制远端测试命令</button>
+      <p>普通 SSH 应显示 SSH=yes，tty 应返回终端路径。VS Code Remote SSH 的终端可能没有 SSH_CONNECTION，不能仅凭空值判断失败。先在没有 tmux / screen 的会话测试；远端无声音时先解决终端链路。</p>
+      <label class="ssh-check"><input type="checkbox" data-ssh-check="remote"> 我已在远端执行测试并听到本地提示音</label>
+    </details>
+    <details><summary>3 · 在远端启动 Codex 验证一轮任务</summary>
+      <p>在已经登录的服务器终端运行下面的启动命令。参数仅对这次 Codex 会话生效，不写配置文件；正常使用模型产生的费用与平时相同。</p>
+      <pre id="ssh-codex-start">codex -c 'tui.notifications=["agent-turn-complete"]' -c 'tui.notification_method="bel"' -c 'tui.notification_condition="always"'</pre><button class="quiet" data-copy="ssh-codex-start">复制远端启动命令</button>
+      <p>发起一轮任务，完成时应听到终端提示音，再切换窗口验证一次。已有 notify / Stop Hook 仍可能额外提醒；请检查原配置，避免重复通知。</p>
+      <label class="ssh-check"><input type="checkbox" data-ssh-check="task"> 我已确认远端 Codex 完成任务时提醒正常</label>
+    </details>
+    <details><summary>4 · 验证后保存为远端默认设置（可选）</summary>
+      <p>先备份服务器实际使用的 Codex 配置，再将下列设置合并到该文件（通常是 ~/.codex/config.toml；设置 CODEX_HOME 时使用对应目录）。已有 [tui] 块时只更新三个键，不要重复添加整个块，也不要把密钥或完整配置粘贴进回响。</p>
+      <pre id="ssh-codex-config">[tui]
+notifications = ["agent-turn-complete"]
+notification_method = "bel"
+notification_condition = "always"</pre><button class="quiet" data-copy="ssh-codex-config">复制远端配置</button>
+      <p>保存后重启 Codex，再次验证。恢复时还原这三个键的原值；本地 VS Code 也可恢复原来的响铃设置。</p>
+    </details>
+    <p id="ssh-status" class="bridge-help" role="status" aria-live="polite"></p>
+  </section>
   <section id="preferences" class="preferences"><div class="section-heading"><div><h2>按你的节奏提醒</h2><p>所有接入工具共用，保存后立即用于下一次通知。</p></div><span class="save-status" id="save-status"></span></div>
     <form id="prefs-form"><div class="setting-row"><div><strong>系统桌面通知</strong><small>完成消息进入系统通知中心</small></div><label class="switch"><input type="checkbox" name="desktop" aria-label="系统桌面通知"><span></span></label></div>
     <div class="setting-row"><div><strong>完成提示音</strong><small>让熟悉的一声提醒你回来</small></div><label class="switch"><input type="checkbox" name="sound" aria-label="完成提示音"><span></span></label></div>

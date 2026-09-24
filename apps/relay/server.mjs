@@ -18,7 +18,7 @@ export function createServer(manager = new Manager(), { approveConnection } = {}
     manager.savePreferences(prefs);
   } });
   let approving = false;
-  const files = { '/': ['index.html', 'text/html'], '/icon.png': ['icon.png', 'image/png'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/browser.js': ['browser.js', 'text/javascript'] };
+  const files = { '/ssh.js': ['ssh.js', 'text/javascript'], '/': ['index.html', 'text/html'], '/icon.png': ['icon.png', 'image/png'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/browser.js': ['browser.js', 'text/javascript'] };
   const server = http.createServer(async (req, res) => {
     const origin = `http://127.0.0.1:${server.address().port}`;
     const send = (code, value) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); };

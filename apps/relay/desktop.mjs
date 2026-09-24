@@ -65,7 +65,7 @@ else {
     ]);
     tray.setContextMenu(menu());
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: '回响 Relay', submenu: [{ label: '关于回响', click: () => dialog.showMessageBox(window, { message: '回响 Relay 0.2.0 试用版', detail: '网页 AI 与本地编程工具的统一提醒入口。关闭窗口后仍在菜单栏运行；退出后已接入的工具仍可独立通知。' }) }, { type: 'separator' }, { role: 'quit', label: '退出回响' }] },
+      { label: '回响 Relay', submenu: [{ label: '关于回响', click: () => dialog.showMessageBox(window, { message: '回响 Relay 0.3.0 试用版', detail: '网页 AI 与本地编程工具的统一提醒入口。关闭窗口后仍在菜单栏运行；退出后已接入的工具仍可独立通知。' }) }, { type: 'separator' }, { role: 'quit', label: '退出回响' }] },
       { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: '窗口', submenu: [{ role: 'minimize' }, { label: '显示回响', click: show }] }
     ]));
