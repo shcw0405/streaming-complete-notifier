@@ -1,6 +1,6 @@
 {
   "name": "relay-notifier",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "main": "desktop.mjs",
@@ -18,7 +18,7 @@
     "smol-toml": "^1.4.2"
   },
   "devDependencies": {
-    "@electron/packager": "^20.3.0",
+    "@electron/packager": "^20.3.1",
     "electron": "^44.2.0"
   }
 }

@@ -8,7 +8,7 @@
   const root = document.querySelector('#ssh-tools');
   const status = root.querySelector('#ssh-status');
   const checks = [...root.querySelectorAll('input[data-ssh-check]')];
-  const key = 'relay-ssh-guide-v1';
+  const key = 'relay-ssh-guide-v2';
   const render = () => {
     const count = checks.filter(input => input.checked).length;
     status.textContent = count === checks.length ? '你已确认全部步骤；回响未自动检测远端状态' : `已手动确认 ${count}/${checks.length} 步 · 尚未完成真实任务验证`;

@@ -4,7 +4,7 @@
 
 ## 安装包与桌面开发
 
-`npm ci && npm run package` 生成 `release/Relay-0.3.0-mac-arm64.zip` 与 `release/Relay-Browser-1.4.0.zip`。首次构建下载经校验的 Electron 和官方 Node 24.14.0，之后复用缓存。当前为本机 ad-hoc 签名，未 Apple 公证，未上架扩展商店。安装步骤见 [INSTALL.md](INSTALL.md)。
+`npm ci && npm run package` 生成 `release/Relay-0.3.1-mac-arm64.zip` 与 `release/Relay-Browser-1.4.0.zip`。首次构建下载经校验的 Electron 和官方 Node 24.14.0，之后复用缓存。当前为本机 ad-hoc 签名，未 Apple 公证，未上架扩展商店。安装步骤见 [INSTALL.md](INSTALL.md)。
 
 先构建后可 `npm run desktop` 开发桌面应用。`desktop.mjs` 管理单实例、菜单栏、窗口与服务生命周期；关闭窗口不退出，退出应用停止本地管理服务。CLI 通知脚本使用 `~/.relay-notifier/bin/node`，不依赖 Electron 是否运行或安装目录是否移动。
 
